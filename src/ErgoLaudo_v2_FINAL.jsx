@@ -107,13 +107,25 @@ function useCorrecaoOrtografica(value, onChange) {
 // ==================== Firebase ====================
 // As chaves ficam nas variáveis de ambiente da Vercel (Settings → Environment
 // Variables). No Create React App elas PRECISAM começar com REACT_APP_.
+// Forma mais simples: uma única variável REACT_APP_FIREBASE_CONFIG com o bloco
+// "firebaseConfig" copiado do console do Firebase (botão de copiar), sem editar.
+// Se ela não existir, usa as 6 variáveis separadas.
+function lerConfigColada(texto) {
+  const config = {};
+  if (!texto) return config;
+  const padrao = /([A-Za-z]+)\s*["']?\s*:\s*["']([^"']+)["']/g;
+  let m;
+  while ((m = padrao.exec(texto)) !== null) config[m[1]] = m[2].trim();
+  return config;
+}
+const configColada = lerConfigColada(process.env.REACT_APP_FIREBASE_CONFIG);
 const firebaseConfig = {
-  apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
-  authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID,
-  storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.REACT_APP_FIREBASE_APP_ID,
+  apiKey: configColada.apiKey || process.env.REACT_APP_FIREBASE_API_KEY,
+  authDomain: configColada.authDomain || process.env.REACT_APP_FIREBASE_AUTH_DOMAIN,
+  projectId: configColada.projectId || process.env.REACT_APP_FIREBASE_PROJECT_ID,
+  storageBucket: configColada.storageBucket || process.env.REACT_APP_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: configColada.messagingSenderId || process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID,
+  appId: configColada.appId || process.env.REACT_APP_FIREBASE_APP_ID,
 };
 const FIREBASE_CONFIGURADO = !!(firebaseConfig.apiKey && firebaseConfig.projectId && firebaseConfig.authDomain);
 
@@ -6869,10 +6881,15 @@ function mensagemErroFirebase(erro) {
     "auth/network-request-failed": "Sem conexão com a internet.",
     "auth/operation-not-allowed": "Login por e-mail não está ativado no Firebase (Authentication → Sign-in method).",
     "auth/configuration-not-found": "Login por e-mail não está ativado no Firebase (Authentication → Sign-in method).",
+    "auth/admin-restricted-operation": "A criação de contas está desativada no Firebase (Authentication → Configurações → Ações do usuário → Ativar criação).",
+    "auth/password-does-not-meet-requirements": "A senha não atende à política de senha do Firebase. Use letras maiúsculas e minúsculas, número e símbolo (ex.: Ergo@2026).",
+    "auth/unauthorized-domain": "Este endereço não está autorizado no Firebase (Authentication → Configurações → Domínios autorizados).",
+    "auth/invalid-api-key": "A chave do Firebase (API key) configurada na Vercel está incorreta.",
+    "auth/api-key-not-valid.-please-pass-a-valid-api-key.": "A chave do Firebase (API key) configurada na Vercel está incorreta.",
     "permission-denied": "Sem permissão no banco de dados. Confira as regras do Firestore.",
     "unavailable": "Sem conexão com o servidor. Tente de novo em instantes.",
   };
-  return mensagens[codigo] || "Algo deu errado. Tente novamente.";
+  return mensagens[codigo] || `Algo deu errado. Tente novamente.${codigo ? ` (código: ${codigo})` : ""}`;
 }
 
 // ==================== Tela de Splash / Boas-vindas ====================
@@ -7186,7 +7203,7 @@ function TelaFirebaseNaoConfigurado() {
         <p style={{ fontSize: 14, color: "#44473F", lineHeight: 1.6, margin: 0 }}>
           As variáveis de ambiente do Firebase não foram encontradas. Na Vercel, abra
           Settings → Environment Variables e confira se existem as 6 variáveis começando
-          com <strong>REACT_APP_FIREBASE_</strong>. Depois, faça um novo deploy.
+          com <strong>REACT_APP_FIREBASE_</strong> (ou a variável única <strong>REACT_APP_FIREBASE_CONFIG</strong>). Depois, faça um novo deploy.
         </p>
       </div>
     </div>
