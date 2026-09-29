@@ -296,9 +296,13 @@ function resumoProjeto(id, dados) {
 }
 
 // Grava o conteúdo do projeto aberto (mantém nome e situação)
+// Projetos já excluídos: um salvamento automático atrasado não pode recriá-los
+const projetosExcluidos = new Set();
+
 async function salvarLaudoNaNuvem(uid, projetoId, laudo) {
-  if (!uid || !projetoId) return;
+  if (!uid || !projetoId || projetosExcluidos.has(projetoId)) return;
   const { dados, envios } = await prepararLaudoParaNuvem(uid, laudo);
+  if (projetosExcluidos.has(projetoId)) return;
   envios.push(setDoc(refProjeto(uid, projetoId), { laudo: dados, atualizadoEm: Date.now() }, { merge: true }));
   await aguardarGravacao(envios);
 }
@@ -704,6 +708,33 @@ const RISK_CATEGORIES = [
   { key: "organizacionais", label: "Organizacionais", color: "#8266B0", bg: "#F2EEF8" },
   { key: "ambientais", label: "Ambientais", color: "#E0954F", bg: "#FCF1E6" },
   { key: "psicossociais", label: "Psicossociais / Cognitivos", color: "#7A3B4A", bg: "#F6ECEE" },
+];
+
+// Itens do checklist NR-17 (usados no formulário do cargo e no PDF)
+const NR17_CHECKLIST_ITENS = [
+  { grupo: "Mobiliário e Uso", itens: [
+    { key: "cadeira", label: "Cadeira com regulagem de altura, encosto anatômico e inclinação ajustável." },
+    { key: "piso", label: "Piso lavável e de cor clara." },
+    { key: "luminarias", label: "Layout do mobiliário compatível com o layout das luminárias." },
+    { key: "mesaBancada", label: "Mesa/bancada permite posicionamento adequado do monitor e teclado." },
+    { key: "assentosEmPe", label: "Existem assentos para descanso em atividades realizadas em pé." },
+    { key: "suporteDocumentos", label: "Suporte adequado para leitura de documentos, evitando movimentação do pescoço." },
+    { key: "suportePes", label: "Suporte para os pés em trabalho sentado, ou pedais de fácil alcance." },
+    { key: "documentosLegiveis", label: "Documentos em papel legíveis, sem ofuscamento visual." },
+    { key: "terminalVideo", label: "Terminal de vídeo com mobilidade suficiente para ajuste à iluminação." },
+  ]},
+  { grupo: "Organização do Trabalho", itens: [
+    { key: "pausasOrg", label: "Atividades com sobrecarga muscular incluem pausas para descanso." },
+    { key: "toquesHora", label: "Número de toques sobre o teclado inferior a 8.000 por hora trabalhada." },
+    { key: "avaliacaoDigitadores", label: "Empregador não avalia digitadores por número de toques para remuneração." },
+  ]},
+  { grupo: "Levantamento e Cargas", itens: [
+    { key: "transporteManual", label: "Trabalhadores exercem esforço de transporte compatível com sua capacidade." },
+    { key: "transporteMecanico", label: "Transporte por impulsão/tração compatível com a força dos trabalhadores." },
+    { key: "treinamentoCargas", label: "Trabalhadores que transportam cargas receberam treinamento adequado." },
+    { key: "levantamentoMecanico", label: "Levantamento mecânico não compromete saúde e segurança." },
+    { key: "meiosTecnicos", label: "São utilizados meios técnicos para facilitar o transporte manual." },
+  ]},
 ];
 
 const emptyCargo = () => ({
@@ -2076,31 +2107,7 @@ function CargoForm({ initialCargo, onSave, onClose }) {
           <button className="add-rec-btn" onClick={addNR17Eqp}><Plus size={15} /> Adicionar equipamento</button>
 
           {/* ── Checklist itens ── */}
-          {[
-            { grupo: "Mobiliário e Uso", itens: [
-              { key: "cadeira", label: "Cadeira com regulagem de altura, encosto anatômico e inclinação ajustável." },
-              { key: "piso", label: "Piso lavável e de cor clara." },
-              { key: "luminarias", label: "Layout do mobiliário compatível com o layout das luminárias." },
-              { key: "mesaBancada", label: "Mesa/bancada permite posicionamento adequado do monitor e teclado." },
-              { key: "assentosEmPe", label: "Existem assentos para descanso em atividades realizadas em pé." },
-              { key: "suporteDocumentos", label: "Suporte adequado para leitura de documentos, evitando movimentação do pescoço." },
-              { key: "suportePes", label: "Suporte para os pés em trabalho sentado, ou pedais de fácil alcance." },
-              { key: "documentosLegiveis", label: "Documentos em papel legíveis, sem ofuscamento visual." },
-              { key: "terminalVideo", label: "Terminal de vídeo com mobilidade suficiente para ajuste à iluminação." },
-            ]},
-            { grupo: "Organização do Trabalho", itens: [
-              { key: "pausasOrg", label: "Atividades com sobrecarga muscular incluem pausas para descanso." },
-              { key: "toquesHora", label: "Número de toques sobre o teclado inferior a 8.000 por hora trabalhada." },
-              { key: "avaliacaoDigitadores", label: "Empregador não avalia digitadores por número de toques para remuneração." },
-            ]},
-            { grupo: "Levantamento e Cargas", itens: [
-              { key: "transporteManual", label: "Trabalhadores exercem esforço de transporte compatível com sua capacidade." },
-              { key: "transporteMecanico", label: "Transporte por impulsão/tração compatível com a força dos trabalhadores." },
-              { key: "treinamentoCargas", label: "Trabalhadores que transportam cargas receberam treinamento adequado." },
-              { key: "levantamentoMecanico", label: "Levantamento mecânico não compromete saúde e segurança." },
-              { key: "meiosTecnicos", label: "São utilizados meios técnicos para facilitar o transporte manual." },
-            ]},
-          ].map(({ grupo, itens }) => (
+          {NR17_CHECKLIST_ITENS.map(({ grupo, itens }) => (
             <div key={grupo}>
               <p className="nr17-group-label">{grupo}</p>
               {itens.map((c) => (
@@ -6391,6 +6398,12 @@ function ConfirmarGeracaoModal({ empresaNome, onConfirm, onCancel }) {
 
 function Historico({ onClose, registros = [], isAdmin = false }) {
   const [ultimaVisita, setUltimaVisita] = useState(null);
+  const [baixandoId, setBaixandoId] = useState(null);
+  const baixarArquivo = async (reg) => {
+    if (baixandoId || !reg.onAbrirArquivo) return;
+    setBaixandoId(reg.id);
+    try { await reg.onAbrirArquivo(); } finally { setBaixandoId(null); }
+  };
 
   useEffect(() => {
     (async () => {
@@ -6636,8 +6649,9 @@ function Historico({ onClose, registros = [], isAdmin = false }) {
                   <p className="registro-profissional">Gerado por {reg.profissionalNome || reg.profissionalEmail}</p>
                 )}
                 <div className="registro-footer">
-                  <button className="registro-arquivo-btn" onClick={() => reg.onAbrirArquivo?.()}>
-                    <FileText size={14} /> Ver arquivo
+                  <button className="registro-arquivo-btn" onClick={() => baixarArquivo(reg)} disabled={!!baixandoId}
+                    style={baixandoId && baixandoId !== reg.id ? { opacity: 0.5 } : undefined}>
+                    <FileText size={14} /> {baixandoId === reg.id ? "Gerando PDF..." : "Baixar PDF"}
                   </button>
                   {isAdmin && Number(reg.valorCobrado) > 0 && (
                     <span>
@@ -6653,6 +6667,1098 @@ function Historico({ onClose, registros = [], isAdmin = false }) {
       </div>
     </div>
   );
+}
+
+// ==================== PDF do laudo ====================
+// O PDF é montado no próprio aparelho (biblioteca pdfmake, carregada só na
+// hora de gerar), seguindo a estrutura do laudo AET de referência.
+
+const PDF_COR = "#0A2647";
+const PDF_CINZA = "#5E6168";
+const PDF_BORDA = "#C9CCD3";
+const PDF_FUNDO_ROTULO = "#EEF1F6";
+
+let pdfMakePromessa = null;
+function carregarPdfMake() {
+  if (!pdfMakePromessa) {
+    pdfMakePromessa = Promise.all([import("pdfmake/build/pdfmake"), import("pdfmake/build/vfs_fonts")])
+      .then(([modPdf, modFontes]) => {
+        const candidatos = [modPdf, modPdf?.default, modPdf?.default?.default, globalThis.pdfMake];
+        const pdfMake = candidatos.find((c) => c && typeof c.createPdf === "function");
+        if (!pdfMake) throw new Error("Biblioteca de PDF não encontrada");
+        const fontes = modFontes?.default || modFontes;
+        const vfs = fontes?.pdfMake?.vfs || fontes?.vfs || fontes;
+        if (typeof pdfMake.addVirtualFileSystem === "function") pdfMake.addVirtualFileSystem(vfs);
+        else pdfMake.vfs = vfs;
+        return pdfMake;
+      })
+      .catch((erro) => {
+        pdfMakePromessa = null;
+        throw erro;
+      });
+  }
+  return pdfMakePromessa;
+}
+
+// ---------- Textos fixos do documento ----------
+
+const ESOCIAL_FATORES = {
+  biomecanicos: [
+    "Trabalho em posturas incômodas ou pouco confortáveis por longos períodos",
+    "Postura sentada por longos períodos",
+    "Postura de pé por longos períodos",
+    "Frequente deslocamento a pé durante a jornada de trabalho",
+    "Trabalho com esforço físico intenso",
+    "Levantamento e transporte manual de cargas ou volumes",
+    "Frequente ação de puxar/empurrar cargas ou volumes",
+    "Frequente execução de movimentos repetitivos",
+    "Manuseio de ferramentas e/ou objetos pesados por longos períodos",
+    "Exigência de uso frequente de força, pressão, preensão, flexão, extensão ou torção dos segmentos corporais",
+    "Compressão de partes do corpo por superfícies rígidas ou com quinas",
+    "Exigência de flexões de coluna vertebral frequentes",
+    "Uso frequente de pedais",
+    "Uso frequente de alavancas",
+    "Exigência de elevação frequente de membros superiores",
+    "Manuseio ou movimentação de cargas e volumes sem pega ou com “pega pobre”",
+    "Exposição a vibração de corpo inteiro",
+    "Exposição a vibrações localizadas (mão-braço)",
+    "Uso frequente de escadas",
+    "Trabalho intensivo com teclado ou outros dispositivos de entrada de dados",
+    "Outros",
+  ],
+  mobiliario: [
+    "Posto de trabalho improvisado",
+    "Mobiliário sem meios de regulagem de ajuste",
+    "Equipamentos e/ou máquinas sem meios de regulagem de ajuste ou sem condições de uso",
+    "Posto de trabalho não planejado/adaptado para a posição sentada",
+    "Assento inadequado",
+    "Encosto do assento inadequado ou ausente",
+    "Mobiliário ou equipamento sem espaço para movimentação de segmentos corporais",
+    "Trabalho com necessidade de alcançar objetos, documentos, controles ou qualquer ponto além das zonas de alcance ideais para as características antropométricas do trabalhador",
+    "Equipamentos ou mobiliários não adaptados à antropometria do trabalhador",
+    "Outros",
+  ],
+  organizacionais: [
+    "Trabalho realizado sem pausas pré-definidas para descanso",
+    "Necessidade de manter ritmos intensos de trabalho",
+    "Trabalho com necessidade de variação de turnos",
+    "Monotonia",
+    "Trabalho noturno",
+    "Insuficiência de capacitação para execução da tarefa",
+    "Trabalho com utilização rigorosa de metas de produção",
+    "Trabalho remunerado por produção",
+    "Cadência do trabalho imposta por um equipamento",
+    "Desequilíbrio entre tempo de trabalho e tempo de repouso",
+    "Outros",
+  ],
+  ambientais: [
+    "Condições de trabalho com níveis de pressão sonora fora dos parâmetros de conforto",
+    "Condições de trabalho com índice de temperatura efetiva fora dos parâmetros de conforto",
+    "Condições de trabalho com velocidade do ar fora dos parâmetros de conforto",
+    "Condições de trabalho com umidade do ar fora dos parâmetros de conforto",
+    "Condições de trabalho com iluminação diurna inadequada",
+    "Condições de trabalho com iluminação noturna inadequada",
+    "Presença de reflexos em telas, painéis, vidros, monitores ou qualquer superfície, que causem desconforto ou prejudiquem a visualização",
+    "Piso escorregadio e/ou irregular",
+    "Outros",
+  ],
+  psicossociais: [
+    "Excesso de situações de estresse",
+    "Situações de sobrecarga de trabalho mental",
+    "Exigência de alto nível de concentração, atenção e memória",
+    "Trabalho em condições de difícil comunicação",
+    "Excesso de conflitos hierárquicos no trabalho",
+    "Excesso de demandas emocionais/afetivas no trabalho",
+    "Assédio de qualquer natureza no trabalho",
+    "Trabalho com demandas divergentes (ordens divergentes, metas incompatíveis entre si, exigência de qualidade X quantidade, entre outras)",
+    "Exigência de realização de múltiplas tarefas, com alta demanda cognitiva",
+  ],
+};
+
+const TEXTO_ESOCIAL = "Para a análise dos riscos ergonômicos foram utilizados os fatores de risco do eSocial, sinalizados nas planilhas por função pelas seguintes cores: Biomecânicos – rosa; Mobiliário e Equipamentos – azul-claro; Organizacionais – roxo; Ambientais – laranja; Psicossociais/Cognitivos – vinho (Tabela 1).";
+
+const TEXTO_ORGANIZACAO_TRABALHO = "Em relação à organização do trabalho, a NR-17 leva em consideração, no mínimo, os seguintes critérios: normas de produção, modo operatório, exigência de tempo, determinação do conteúdo de tempo, ritmo de trabalho e conteúdo das tarefas (BRASIL, 1978).";
+
+const TEXTO_NOTA_PRIORIDADE = "A coluna de priorização auxilia a empresa a tomar decisões conforme o nível de risco das ações propostas. Ações em vermelho exigem atenção especial e devem ser realizadas primeiro; ações em amarelo possuem priorização média; e ações em verde possuem priorização baixa, mas da mesma forma devem ser programadas para serem cumpridas. Fica a critério da empresa adiantar uma ação que considere mais simples.";
+
+const REFERENCIAS_AET = [
+  "ABRAHÃO, J. I. et al. Introdução à ergonomia: da prática à teoria. São Paulo: Blucher, 2009.",
+  "ASSOCIAÇÃO BRASILEIRA DE ERGONOMIA – ABERGO. O que é ergonomia, 2012. Disponível em: http://www.abergo.org.br.",
+  "ASSOCIAÇÃO BRASILEIRA DE NORMAS TÉCNICAS. NBR 13966. Móveis para escritório – Mesas – Classificação e características físicas dimensionais e requisitos e métodos de ensaio. Rio de Janeiro: ABNT, 2008.",
+  "BRASIL. Ministério do Trabalho e Emprego. Portaria 3.214, de 08 de junho de 1978. Aprova as Normas Regulamentadoras – NR – da Consolidação das Leis do Trabalho, relativas à segurança e medicina do trabalho. Norma Regulamentadora nº 17 – Ergonomia.",
+  "DEJOURS, C. A loucura do trabalho: estudo da psicopatologia do trabalho. São Paulo: Cortez, 1992.",
+  "GINN, D. M.; JONES, D. V.; RAHNEJAT, H.; ZAIRI, M. The “QFD/FMEA interface”. European Journal of Innovation Management, v. 1, n. 1, p. 7-20, 1998.",
+  "GUÉRIN, F. et al. Compreender o trabalho para transformá-lo: a prática em ergonomia. São Paulo: Edgard Blücher, 2001.",
+  "McATAMNEY, L.; CORLETT, E. N. RULA: a survey method for the investigation of work-related upper limb disorders. Applied Ergonomics, v. 24, n. 2, p. 91-99, 1993.",
+  "OHSAS 18001. Norma sobre Sistemas de Gestão em Saúde e Segurança do Trabalho, 1999.",
+  "SEPRT – Secretaria Especial de Previdência e Trabalho. Norma Regulamentadora 01: Disposições Gerais. Brasília, 2019.",
+];
+
+// Roteiro da entrevista (Apêndice 1), agrupado como no laudo de referência
+const ENTREVISTA_AET = [
+  { grupo: "", itens: [
+    "Descreva o seu trabalho (atividades realizadas diariamente). Quando você chega, qual a primeira coisa que você faz? Qual atividade você realiza na maior parte do tempo?",
+    "Ferramentas que mais utiliza. Existe algum problema com as ferramentas?",
+    "Relate as principais dificuldades encontradas durante a execução das suas atividades.",
+  ] },
+  { grupo: "BIOMECÂNICOS", itens: [
+    "Trabalha em posturas incômodas ou pouco confortáveis (ajoelhado, locais apertados, braços acima do ombro) por longos períodos? ( ) Não ( ) Sim. Por quanto tempo e quantas vezes?",
+    "Qual a postura em que fica mais na sua atividade? ( ) Sentada por longos períodos ( ) De pé por longos períodos ( ) Frequente deslocamento a pé. Por quanto tempo (porcentagem de cada)?",
+    "Seu trabalho exige esforço físico? ( ) Não ( ) Leve ( ) Moderado ( ) Intenso. Por quê? Em qual atividade?",
+    "Realiza levantamento e transporte manual de cargas ou volumes (acima de 3 kg)? ( ) Sim ( ) Não. Se sim: qual é a carga e o peso aproximado? Com que frequência? A pega é boa ou pobre? A carga fica próxima ao corpo? Carrega apenas de um lado? Realiza transporte coletivo ou com auxílio?",
+    "Realiza frequente ação de puxar/empurrar cargas ou volumes? ( ) Não ( ) Sim. Em qual atividade?",
+    "Realiza frequente execução de movimentos repetitivos? ( ) Não ( ) Sim. Em qual atividade?",
+    "Realiza frequentemente movimentos de flexão, extensão ou torção da coluna ou dos membros? ( ) Não ( ) Sim. Em qual atividade?",
+    "Sofre compressão de partes do corpo por quina viva (90°) na mesa ou bancada? ( ) Sim ( ) Não",
+    "Usa frequentemente pedais ou alavancas? ( ) Não ( ) Sim. Em qual atividade? Sente dor nos membros inferiores?",
+    "Realiza frequente elevação dos membros superiores (braços)? ( ) Não ( ) Sim. Em qual atividade?",
+    "Está exposto a vibrações de mão-braço (VMB) ou de corpo inteiro (VCI)? ( ) Não ( ) Sim, VMB ( ) Sim, VCI. Sente incômodo com a vibração?",
+    "Usa frequentemente escadas durante o trabalho? ( ) Não ( ) Sim. Sente dores nos membros inferiores? Com que frequência?",
+    "Realiza trabalho intensivo com teclado ou outros dispositivos de entrada de dados? ( ) Sim ( ) Não. Sente dores nos membros superiores? Com que frequência?",
+  ] },
+  { grupo: "MOBILIÁRIO E EQUIPAMENTOS", itens: [
+    "Seu posto de trabalho é improvisado? ( ) Não ( ) Sim. Por quê?",
+    "Setor administrativo: a cadeira é giratória, com rodízios, apoio de 5 pés, estofamento bom e regulagem de altura do encosto, do assento e da inclinação? ( ) Sim ( ) Não",
+    "Seu posto de trabalho é planejado/adaptado para a posição em que fica durante a atividade? ( ) Sim ( ) Não. Medidas da mesa (A, P, L) ou da bancada/prateleira.",
+    "Os mobiliários ou equipamentos atrapalham a movimentação do corpo (sem espaço, apertado)? ( ) Sim ( ) Não",
+    "Precisa alcançar objetos, documentos ou controles em pontos de difícil alcance, subindo em suportes ou se esticando demais? ( ) Não ( ) Sim. Em qual atividade?",
+  ] },
+  { grupo: "ORGANIZACIONAIS", itens: [
+    "São realizadas pausas pré-definidas (estabelecidas pela empresa) para descanso? ( ) Sim. Quanto tempo? ( ) Não",
+    "Realiza pequenas pausas (micropausas espontâneas)? Tem liberdade para pausar quando sente necessidade? ( ) Sim ( ) Não",
+    "Realiza hora extra? ( ) Sim ( ) Não. Com que frequência?",
+    "Você considera seu ritmo de trabalho: ( ) Leve ( ) Moderado ( ) Intenso. Se intenso, qual a causa?",
+    "Precisa variar de turnos ou realiza trabalho noturno? ( ) Não ( ) Sim. Qual horário? Considera mais difícil?",
+    "Sua atividade varia bastante ou é sempre igual (monótona)? ( ) Varia ( ) Sempre igual",
+    "É muito cobrado/pressionado para produzir cada vez mais? ( ) Não ( ) Sim. Por quê?",
+    "Há equilíbrio entre tempo de trabalho e de repouso? O descanso após a jornada é de no mínimo 11 horas? ( ) Sim ( ) Não",
+  ] },
+  { grupo: "AMBIENTAIS", itens: [
+    "Sente desconforto em relação a algum destes fatores? ( ) Calor ( ) Ruído ( ) Umidade ( ) Iluminação ruim ( ) Piso escorregadio e/ou irregular ( ) Reflexos em telas, painéis, vidros ou monitores. Outros? Qual o motivo do desconforto?",
+  ] },
+  { grupo: "PSICOSSOCIAIS / COGNITIVOS", itens: [
+    "Seu trabalho gera muitas situações de estresse e de sobrecarga mental? ( ) Não ( ) Sim. Por quê?",
+    "É exigido a fazer múltiplas tarefas ao mesmo tempo que exigem alta concentração, atenção e memória? ( ) Não ( ) Sim. Por quê?",
+    "Como é a comunicação no seu trabalho, entre colegas e com a liderança? ( ) Ótima ( ) Boa ( ) Razoável ( ) Ruim",
+    "Há muitos conflitos no trabalho (entre colegas, setores, hierarquia, demandas divergentes)? ( ) Não ( ) Sim. Qual tipo?",
+    "Você se encontra satisfeito com seu trabalho? ( ) Sim ( ) Não. Por quê?",
+    "Você possui autonomia no seu trabalho? Tem liberdade para fazer, resolver ou dar sua opinião? ( ) Sim ( ) Não",
+    "O que você considera pontos positivos da empresa?",
+    "Você possui sugestões de melhorias em relação à sua atividade ou à empresa?",
+    "Você sente qualquer tipo de dor no corpo? ( ) Não ( ) Sim. Em qual local? Acha que está relacionada à atividade?",
+    "Já foi afastado do trabalho por doença ocupacional ou acidente de trabalho? ( ) Não ( ) Sim. Qual motivo?",
+  ] },
+];
+
+// ---------- Utilidades ----------
+
+const MESES_EXTENSO = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+
+function hojeBr() {
+  const d = new Date();
+  return `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`;
+}
+
+function dataPorExtenso(br) {
+  const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec((br || "").trim());
+  if (!m) return br || "";
+  return `${Number(m[1])} de ${MESES_EXTENSO[Number(m[2]) - 1]} de ${m[3]}`;
+}
+
+const txt = (v) => (typeof v === "string" ? v.trim() : v == null ? "" : String(v).trim());
+const temTexto = (v) => txt(v) !== "";
+
+function imagemValida(src) {
+  return typeof src === "string" && /^data:image\/(jpeg|jpg|png);base64,/i.test(src);
+}
+
+function escaparXml(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+// Parágrafos separados por linha em branco; trechos entre aspas viram citação recuada
+function paragrafosPdf(texto) {
+  return txt(texto)
+    .split(/\n\s*\n/)
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .map((p) => {
+      const citacao = /^["“]/.test(p) && p.length > 180;
+      return citacao
+        ? { text: p.replace(/^["“]|["”]$/g, ""), style: "citacao" }
+        : { text: p, style: "paragrafo" };
+    });
+}
+
+// Tabela de duas colunas (rótulo / valor), só com as linhas preenchidas
+function tabelaRotuloValor(linhas, larguraRotulo = 150) {
+  const body = linhas
+    .filter(([, valor]) => temTexto(valor))
+    .map(([rotulo, valor]) => [
+      { text: rotulo, bold: true, fillColor: PDF_FUNDO_ROTULO, color: PDF_COR },
+      { text: txt(valor) },
+    ]);
+  if (!body.length) return null;
+  return { table: { widths: [larguraRotulo, "*"], body }, layout: "laudoGrade", margin: [0, 0, 0, 12] };
+}
+
+// ---------- Gráficos (SVG) ----------
+
+const PDF_PALETA = ["#0A2647", "#2C74B3", "#5B9BD5", "#E0954F", "#8266B0", "#2E7D4F", "#D4587A", "#B8860B"];
+
+function numeroPositivo(v) {
+  const n = parseFloat(String(v ?? "").replace(",", "."));
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function graficoBarrasSvg(dados, { horizontal = false } = {}) {
+  const itens = dados.map((d) => ({ label: d.label, valor: numeroPositivo(d.valor) }));
+  const total = itens.reduce((s, d) => s + d.valor, 0);
+  if (!total) return null;
+  const max = Math.max(...itens.map((d) => d.valor));
+  const pct = (v) => `${Math.round((v / total) * 100)}%`;
+  const fmt = (v) => `${String(v).replace(".", ",")} (${pct(v)})`;
+  if (horizontal) {
+    const larg = 470, rotulo = 190, alturaBarra = 18, gap = 9;
+    const alt = itens.length * (alturaBarra + gap) + 10;
+    const util = larg - rotulo - 80;
+    const barras = itens.map((d, i) => {
+      const y = 5 + i * (alturaBarra + gap);
+      const w = Math.max(d.valor ? 2 : 0, (d.valor / max) * util);
+      return `<text x="${rotulo - 8}" y="${y + 13}" font-size="9" text-anchor="end" fill="#333" font-family="Roboto">${escaparXml(d.label)}</text>
+<rect x="${rotulo}" y="${y}" width="${w}" height="${alturaBarra}" fill="${PDF_PALETA[i % PDF_PALETA.length]}"/>
+<text x="${rotulo + w + 6}" y="${y + 13}" font-size="9" fill="#333" font-family="Roboto">${d.valor ? fmt(d.valor) : "0"}</text>`;
+    });
+    return { svg: `<svg xmlns="http://www.w3.org/2000/svg" width="${larg}" height="${alt}" viewBox="0 0 ${larg} ${alt}">${barras.join("")}</svg>`, width: larg };
+  }
+  const larg = 470, alt = 210, base = 170, topo = 20;
+  const n = itens.length;
+  const faixa = (larg - 40) / n;
+  const w = Math.min(70, faixa * 0.55);
+  const barras = itens.map((d, i) => {
+    const h = (d.valor / max) * (base - topo);
+    const x = 20 + i * faixa + (faixa - w) / 2;
+    const cx = 20 + i * faixa + faixa / 2;
+    const palavras = String(d.label).split(" ");
+    const linhas = [];
+    palavras.forEach((p) => {
+      const ult = linhas[linhas.length - 1];
+      if (ult && (ult + " " + p).length <= 18) linhas[linhas.length - 1] = ult + " " + p;
+      else linhas.push(p);
+    });
+    const rot = linhas.slice(0, 3).map((l, k) => `<text x="${cx}" y="${base + 14 + k * 11}" font-size="8.5" text-anchor="middle" fill="#333" font-family="Roboto">${escaparXml(l)}</text>`).join("");
+    return `<rect x="${x}" y="${base - h}" width="${w}" height="${h}" fill="${PDF_PALETA[i % PDF_PALETA.length]}"/>
+<text x="${cx}" y="${base - h - 5}" font-size="9" text-anchor="middle" fill="#333" font-family="Roboto">${d.valor ? fmt(d.valor) : "0"}</text>${rot}`;
+  });
+  return { svg: `<svg xmlns="http://www.w3.org/2000/svg" width="${larg}" height="${alt}" viewBox="0 0 ${larg} ${alt}"><line x1="15" y1="${base}" x2="${larg - 15}" y2="${base}" stroke="#999" stroke-width="0.8"/>${barras.join("")}</svg>`, width: larg };
+}
+
+function graficoPizzaSvg(dados) {
+  const itens = dados.map((d) => ({ label: d.label, valor: numeroPositivo(d.valor) }));
+  const total = itens.reduce((s, d) => s + d.valor, 0);
+  if (!total) return null;
+  const larg = 400, alt = 180, cx = 100, cy = 90, r = 75;
+  let angulo = -Math.PI / 2;
+  const fatias = [];
+  itens.forEach((d, i) => {
+    if (!d.valor) return;
+    const cor = PDF_PALETA[(i * 3) % PDF_PALETA.length];
+    const frac = d.valor / total;
+    if (frac >= 0.9999) {
+      fatias.push(`<circle cx="${cx}" cy="${cy}" r="${r}" fill="${cor}"/>`);
+    } else {
+      const a2 = angulo + frac * 2 * Math.PI;
+      const x1 = cx + r * Math.cos(angulo), y1 = cy + r * Math.sin(angulo);
+      const x2 = cx + r * Math.cos(a2), y2 = cy + r * Math.sin(a2);
+      fatias.push(`<path d="M${cx},${cy} L${x1.toFixed(2)},${y1.toFixed(2)} A${r},${r} 0 ${frac > 0.5 ? 1 : 0} 1 ${x2.toFixed(2)},${y2.toFixed(2)} Z" fill="${cor}" stroke="#fff" stroke-width="1.5"/>`);
+      angulo = a2;
+    }
+  });
+  const legenda = itens.map((d, i) => {
+    const y = 55 + i * 24;
+    const cor = PDF_PALETA[(i * 3) % PDF_PALETA.length];
+    return `<rect x="215" y="${y - 10}" width="12" height="12" fill="${cor}"/><text x="234" y="${y}" font-size="10" fill="#333" font-family="Roboto">${escaparXml(d.label)}: ${String(d.valor).replace(".", ",")} (${Math.round((d.valor / total) * 100)}%)</text>`;
+  });
+  return { svg: `<svg xmlns="http://www.w3.org/2000/svg" width="${larg}" height="${alt}" viewBox="0 0 ${larg} ${alt}">${fatias.join("")}${legenda.join("")}</svg>`, width: larg };
+}
+
+// ---------- Montagem do documento ----------
+
+function montarDocumentoPdf(laudoBruto, opcoes = {}) {
+  const laudo = normalizarLaudo(laudoBruto);
+  const dg = laudo.dadosGerais;
+  const emp = dg.empresa, ctr = dg.contrato, resp = dg.responsavel, capa = dg.capa, textos = dg.textos;
+  const pop = laudo.populacao;
+  const cargos = (laudo.cargos || []).filter((c) => c && (temTexto(c.nome) || c.condicoes));
+  const dataEmissao = opcoes.dataEmissao || hojeBr();
+  const ano = dataEmissao.slice(-4);
+  const localServicos = txt(emp.enderecoLocal) || txt(emp.enderecoServicos);
+  const empresaNome = txt(emp.razaoSocial) || "Empresa";
+  const fonte = `Fonte: o autor (${ano}).`;
+
+  const content = [];
+  let secao = 0;
+  let numGrafico = 0, numTabela = 0, numFoto = 0;
+
+  const titulo = (texto, { quebra = true, orientacao } = {}) => {
+    secao += 1;
+    const node = { text: `${secao} ${texto.toUpperCase()}`, style: "h1", tocItem: true };
+    if (quebra) node.pageBreak = "before";
+    if (orientacao) node.pageOrientation = orientacao;
+    content.push(node);
+    return secao;
+  };
+  const subtitulo = (numeracao, texto, extra = {}) => content.push({ text: `${numeracao} ${texto}`, style: "h2", tocItem: true, tocMargin: [14, 0, 0, 0], ...extra });
+  const tituloSemNumero = (texto, extra = {}) => content.push({ text: texto.toUpperCase(), style: "h1", tocItem: true, pageBreak: "before", ...extra });
+  const adicionar = (node) => { if (node) content.push(node); };
+
+  const grafico = (tituloGrafico, g) => {
+    if (!g) return;
+    numGrafico += 1;
+    content.push({
+      stack: [
+        { text: `Gráfico ${numGrafico} – ${tituloGrafico}`, style: "legenda" },
+        { svg: g.svg, width: g.width, alignment: "center" },
+        { text: fonte, style: "fonte" },
+      ],
+      unbreakable: true,
+    });
+  };
+
+  // ----- Capa -----
+  const logos = [capa.logoConsultoria, capa.logoCliente].filter(imagemValida);
+  if (logos.length) {
+    content.push({
+      columns: logos.map((src, i) => ({ image: src, fit: [150, 70], alignment: logos.length === 1 ? "center" : i === 0 ? "left" : "right" })),
+      margin: [0, 0, 0, 30],
+    });
+  } else {
+    content.push({ text: "", margin: [0, 60, 0, 0] });
+  }
+  content.push({ text: "ANÁLISE ERGONÔMICA\nDO TRABALHO", style: "capaTitulo" });
+  content.push({ text: "AET – NR-17", style: "capaSubtitulo" });
+  content.push({
+    table: {
+      widths: [150, "*"],
+      body: [
+        ["Empresa", empresaNome],
+        ["Local", localServicos],
+        [`Revisão ${txt(capa.revisao) || "00"}`, dataEmissao],
+        ["Coleta de dados", [txt(capa.dataInicioColeta), txt(capa.dataFimColeta)].filter(Boolean).join(" a ")],
+        ["Validade", txt(capa.dataValidade)],
+      ]
+        .filter(([, v]) => temTexto(v))
+        .map(([r, v]) => [{ text: r, bold: true, color: PDF_COR }, { text: v }]),
+    },
+    layout: "noBorders",
+    margin: [40, 30, 40, 30],
+  });
+  if (temTexto(resp.nome)) {
+    content.push({ text: "Responsável Técnico", style: "capaRotulo" });
+    content.push({ text: txt(resp.nome), style: "capaNome" });
+    content.push({
+      text: [txt(resp.formacao), temTexto(resp.crefito) ? `CREFITO ${txt(resp.crefito)}` : ""].filter(Boolean).join(" · "),
+      style: "capaDetalhe",
+    });
+  }
+  content.push({ text: `${localServicos ? localServicos + ", " : ""}${dataPorExtenso(dataEmissao)}.`, style: "capaDetalhe", margin: [0, 30, 0, 0] });
+  const rodapeCapa = [txt(resp.empresaConsultoria), txt(resp.endereco), txt(resp.contato)].filter(Boolean);
+  if (rodapeCapa.length) {
+    content.push({ text: rodapeCapa.join("\n"), style: "capaRodape", absolutePosition: { x: 60, y: 745 }, width: 475 });
+  }
+
+  // ----- Controle de revisões e sumário -----
+  content.push({ text: "CONTROLE DE REVISÕES", style: "h1", pageBreak: "before" });
+  content.push({
+    table: {
+      headerRows: 1,
+      widths: [80, 60, "*"],
+      body: [
+        [{ text: "Data", style: "th" }, { text: "Revisão", style: "th" }, { text: "Título da atividade", style: "th" }],
+        [dataEmissao, { text: txt(capa.revisao) || "00", alignment: "center" },
+          (txt(capa.revisao) || "00") === "00" ? "Elaboração da Análise Ergonômica do Trabalho" : "Revisão da Análise Ergonômica do Trabalho"],
+      ],
+    },
+    layout: "laudoGrade",
+    margin: [0, 0, 0, 24],
+  });
+  content.push({
+    toc: { title: { text: "SUMÁRIO", style: "h1" }, numberStyle: { color: "#333" } },
+  });
+
+  // ----- Identificação -----
+  content.push({ text: "IDENTIFICAÇÃO DA EMPRESA", style: "h1", pageBreak: "before", tocItem: true });
+  adicionar(tabelaRotuloValor([
+    ["Razão social", emp.razaoSocial], ["CNPJ", emp.cnpj], ["Atividade econômica principal", emp.atividadePrincipal],
+    ["CNAE principal", emp.cnae], ["Grau de risco da empresa", emp.grauRisco],
+    ["Local dos serviços", emp.enderecoLocal], ["Endereço", emp.enderecoServicos],
+  ]));
+  const tabContrato = tabelaRotuloValor([
+    ["Identificação do contrato", ctr.identificacao], ["Objetivo do contrato", ctr.objetivo], ["Contratante", ctr.contratante],
+    ["Vigência do contrato", ctr.vigencia], ["Gestor do contrato", ctr.gestor], ["Fiscal do contrato", ctr.fiscal],
+    ["Grau de risco do contratante", ctr.grauRiscoContratante], ["Grau de risco da contratada", ctr.grauRiscoContratada],
+    ["Número do PGR", ctr.pgrNumero], ["Data do PGR", ctr.pgrData], ["Responsável pelo PGR", ctr.pgrResponsavel],
+  ]);
+  if (tabContrato) {
+    content.push({ text: "IDENTIFICAÇÃO DO CONTRATO", style: "h1", tocItem: true });
+    content.push(tabContrato);
+  }
+  content.push({ text: "DADOS DO RESPONSÁVEL TÉCNICO PELA ELABORAÇÃO DA AET", style: "h1", tocItem: true });
+  adicionar(tabelaRotuloValor([
+    ["Responsável técnico", resp.nome], ["Registro no CREFITO", resp.crefito], ["Formação", resp.formacao],
+    ["Empresa / consultoria", resp.empresaConsultoria], ["CNPJ", resp.cnpjConsultoria], ["Endereço", resp.endereco], ["Contato", resp.contato],
+    ["Responsável pela coleta de dados", resp.nomeColetaDados], ["CREFITO (coleta de dados)", resp.crefitoColetaDados],
+  ]));
+
+  // ----- Textos teóricos -----
+  const sIntro = titulo("Introdução");
+  content.push(...paragrafosPdf(textos.introducao));
+  if (temTexto(textos.conceito)) {
+    subtitulo(`${sIntro}.1`, "CONCEITO DE ERGONOMIA");
+    content.push(...paragrafosPdf(textos.conceito));
+  }
+  if (temTexto(textos.legislacao)) {
+    subtitulo(`${sIntro}.2`, "LEGISLAÇÃO");
+    content.push(...paragrafosPdf(textos.legislacao));
+  }
+  titulo("Análise e constituição da demanda");
+  content.push(...paragrafosPdf(textos.demanda));
+  titulo("Métodos e metodologia", { quebra: false });
+  content[content.length - 1].margin = [0, 18, 0, 8];
+  content.push(...paragrafosPdf(textos.metodologia));
+
+  // ----- Exploração do funcionamento da empresa -----
+  const sExp = titulo("Exploração do funcionamento da empresa");
+  subtitulo(`${sExp}.1`, "CARACTERIZAÇÃO DA POPULAÇÃO ESTUDADA");
+  const nomesCargos = cargos.map((c) => txt(c.nome)).filter(Boolean);
+  if (nomesCargos.length) {
+    content.push({ text: "As funções avaliadas para a análise ergonômica do trabalho foram:", style: "paragrafo" });
+    content.push({
+      ol: nomesCargos.map((n, i) => `${n}${i === nomesCargos.length - 1 ? "." : ";"}`),
+      type: "lower-alpha", margin: [20, 0, 0, 10],
+    });
+  }
+  subtitulo(`${sExp}.2`, "DADOS RELACIONADOS AO TRABALHADOR");
+  const partesPop = [];
+  if (numeroPositivo(pop.totalMasculino)) partesPop.push(`${txt(pop.totalMasculino)} são do sexo masculino${temTexto(pop.idadeMediaMasculino) ? `, com idade média de ${txt(pop.idadeMediaMasculino)} anos` : ""}`);
+  if (numeroPositivo(pop.totalFeminino)) partesPop.push(`${txt(pop.totalFeminino)} do sexo feminino${temTexto(pop.idadeMediaFeminino) ? `, com idade média de ${txt(pop.idadeMediaFeminino)} anos` : ""}`);
+  if (partesPop.length) content.push({ text: `Dos entrevistados, ${partesPop.join(" e ")}.`, style: "paragrafo" });
+  grafico("Escolaridade dos entrevistados", graficoBarrasSvg(pop.escolaridade || [], { horizontal: true }));
+  grafico("Queixas de dores musculoesqueléticas dos entrevistados", graficoBarrasSvg(pop.queixas || []));
+  grafico("Tempo em que os entrevistados trabalham na empresa", graficoBarrasSvg(pop.tempoEmpresa || []));
+  grafico("Principais posturas adotadas durante a jornada de trabalho", graficoBarrasSvg(pop.posturas || [], { horizontal: true }));
+
+  subtitulo(`${sExp}.3`, "ORGANIZAÇÃO DO TRABALHO");
+  content.push({ text: TEXTO_ORGANIZACAO_TRABALHO, style: "paragrafo" });
+  const simNao = (o, a = "sim", b = "nao", ra = "Sim", rb = "Não") => [{ label: ra, valor: o?.[a] }, { label: rb, valor: o?.[b] }];
+  grafico("Realização de transporte de cargas", graficoPizzaSvg(simNao(pop.transporteCargas)));
+  grafico("Realização de micropausas durante as atividades", graficoBarrasSvg(simNao(pop.micropausas)));
+  grafico("Autonomia na execução das atividades", graficoBarrasSvg(simNao(pop.autonomia)));
+  grafico("Comunicação no trabalho", graficoPizzaSvg(simNao(pop.comunicacao, "eficaz", "falhas", "Eficaz", "Falhas")));
+
+  // ----- Análise ergonômica por cargo -----
+  const sAet = titulo("Análise ergonômica do trabalho");
+  subtitulo(`${sAet}.1`, "ASPECTOS ERGONÔMICOS DE ACORDO COM O ESOCIAL");
+  content.push({ text: TEXTO_ESOCIAL, style: "paragrafo" });
+  numTabela += 1;
+  content.push({ text: `Tabela ${numTabela} – Fatores de risco ergonômico (eSocial)`, style: "legenda" });
+  const corpoEsocial = [];
+  RISK_CATEGORIES.forEach((cat) => {
+    corpoEsocial.push([{ text: cat.label.toUpperCase(), bold: true, color: "#fff", fillColor: cat.color }]);
+    (ESOCIAL_FATORES[cat.key] || []).forEach((f) => corpoEsocial.push([{ text: f, fillColor: cat.bg, fontSize: 9 }]));
+  });
+  content.push({ table: { widths: ["*"], body: corpoEsocial }, layout: "laudoGrade" });
+  content.push({ text: fonte, style: "fonte" });
+
+  cargos.forEach((cargo, idx) => {
+    const numeroCargo = `${sAet}.${idx + 2}`;
+    subtitulo(numeroCargo, txt(cargo.nome) || `Cargo ${idx + 1}`, { pageBreak: "before", style: "h2Cargo" });
+    content.push({ text: "ANÁLISE DE RISCOS ERGONÔMICOS", style: "rotuloSecao" });
+    if (localServicos) content.push({ text: localServicos, style: "fonte", alignment: "left", margin: [0, 0, 0, 8] });
+
+    const cond = cargo.condicoes || {};
+    content.push({ text: "Condições físicas", style: "h3" });
+    adicionar(tabelaRotuloValor([
+      ["Instalações", cond.instalacoes], ["Ferramentas / equipamentos utilizados", cond.ferramentas],
+      ["Descrição das funções", cond.descricaoFuncao], ["Jornada de trabalho", cond.jornada], ["Pausas", cond.pausas],
+      ["Ritmo de trabalho", cond.ritmo], ["Postura", cond.postura], ["Aspectos cognitivos", cond.aspectosCognitivos],
+      ["Mobiliário", cond.mobiliario], ["Atividades rotineiras", cond.atividadesRotineiras],
+    ]));
+
+    // Registro fotográfico: duas fotos por linha
+    const fotos = (cargo.fotos || []).filter((f) => imagemValida(f?.src));
+    if (fotos.length) {
+      content.push({ text: "Registro fotográfico da atividade / posto de trabalho", style: "h3" });
+      for (let i = 0; i < fotos.length; i += 2) {
+        const par = fotos.slice(i, i + 2);
+        content.push({
+          columns: par.map((f) => {
+            numFoto += 1;
+            return {
+              width: "50%",
+              stack: [
+                { image: f.src, fit: [235, 190], alignment: "center" },
+                { text: `Foto ${numFoto}${temTexto(f.legenda) ? ` – ${txt(f.legenda)}` : ""}`, style: "legendaFoto" },
+              ],
+            };
+          }),
+          columnGap: 12,
+          unbreakable: true,
+          margin: [0, 0, 0, 10],
+        });
+      }
+    }
+
+    // Riscos por categoria (eSocial)
+    content.push({ text: "Riscos ergonômicos identificados (eSocial)", style: "h3" });
+    content.push({
+      table: {
+        widths: [130, "*"],
+        body: RISK_CATEGORIES.map((cat) => [
+          { text: cat.label, bold: true, color: cat.color, fillColor: cat.bg },
+          { text: txt(cargo.riscos?.[cat.key]) || "Não foram identificados fatores de risco.", color: temTexto(cargo.riscos?.[cat.key]) ? "#1C1F1D" : PDF_CINZA },
+        ]),
+      },
+      layout: "laudoGrade",
+      margin: [0, 0, 0, 12],
+    });
+
+    // FMEA
+    const linhasFmea = (cargo.fmea || []).filter((l) => temTexto(l.fator) || indiceRisco(l));
+    if (linhasFmea.length) {
+      numTabela += 1;
+      content.push({ text: "Priorização dos riscos – FMEA", style: "h3" });
+      content.push({ text: `Tabela ${numTabela} – FMEA: ${txt(cargo.nome) || "cargo"}`, style: "legenda" });
+      const categoriaLabel = (k) => RISK_CATEGORIES.find((c) => c.key === k)?.label || "";
+      content.push({
+        table: {
+          headerRows: 1,
+          widths: [62, "*", "*", 16, 16, 16, 22, 56],
+          dontBreakRows: true,
+          body: [
+            ["Categoria", "Fator de risco (situação encontrada)", "Efeito / consequência", "O", "S", "C", "IR", "Classificação"].map((h) => ({ text: h, style: "th" })),
+            ...linhasFmea.map((l) => {
+              const ir = indiceRisco(l);
+              const cls = classificarRisco(ir);
+              const cat = RISK_CATEGORIES.find((c) => c.key === l.categoria);
+              return [
+                { text: categoriaLabel(l.categoria), fontSize: 8, color: cat?.color || "#333", fillColor: cat?.bg },
+                { text: txt(l.fator), fontSize: 8.5 },
+                { text: txt(l.efeito), fontSize: 8.5 },
+                { text: l.o || "–", alignment: "center" },
+                { text: l.s || "–", alignment: "center" },
+                { text: l.c || "–", alignment: "center" },
+                { text: ir || "–", alignment: "center", bold: true },
+                cls ? { text: cls.classe, bold: true, color: cls.cor, fillColor: cls.bg, alignment: "center", fontSize: 8.5 } : { text: "–", alignment: "center" },
+              ];
+            }),
+          ],
+        },
+        layout: "laudoGrade",
+      });
+      content.push({ text: "O = ocorrência; S = severidade; C = condição ergonômica; IR = O × S × C (Anexos 1 e 2).", style: "fonte", margin: [0, 3, 0, 12] });
+    }
+
+    // RULA
+    const blocoRula = montarRulaPdf(cargo);
+    if (blocoRula) {
+      content.push({ text: "RULA – Rapid Upper Limb Assessment", style: "h3" });
+      content.push({ text: "McATAMNEY, L.; CORLETT, E. N. RULA: a survey method for the investigation of work-related upper limb disorders. Applied Ergonomics, v. 24, n. 2, p. 91-99, 1993.", style: "fonte", alignment: "left", margin: [0, 0, 0, 6] });
+      content.push(...blocoRula);
+    }
+
+    // Checklist NR-17
+    content.push(...montarChecklistNR17Pdf(cargo.checklistNR17));
+
+    // Participação dos trabalhadores
+    const entrevistados = (cargo.trabalhadoresEntrevistados || []).filter((t) => temTexto(t.nome));
+    if (entrevistados.length || temTexto(cargo.dataApresentacaoResultados) || temTexto(cargo.observacoesParticipacao)) {
+      content.push({ text: "Participação dos trabalhadores (NR-17, item 17.3.8)", style: "h3" });
+      if (entrevistados.length) {
+        content.push({
+          table: {
+            headerRows: 1,
+            widths: ["*", 110, 70, 110],
+            dontBreakRows: true,
+            body: [
+              ["Trabalhador", "Função", "Data", "Assinatura"].map((h) => ({ text: h, style: "th" })),
+              ...entrevistados.map((t) => [
+                txt(t.nome), txt(t.funcao), txt(t.dataEntrevista),
+                imagemValida(t.assinatura) ? { image: t.assinatura, fit: [100, 36], alignment: "center" } : "",
+              ]),
+            ],
+          },
+          layout: "laudoGrade",
+          margin: [0, 0, 0, 6],
+        });
+      }
+      if (temTexto(cargo.dataApresentacaoResultados)) content.push({ text: [{ text: "Apresentação dos resultados: ", bold: true }, txt(cargo.dataApresentacaoResultados)], style: "paragrafo" });
+      if (temTexto(cargo.observacoesParticipacao)) content.push({ text: txt(cargo.observacoesParticipacao), style: "paragrafo" });
+    }
+
+    // Conclusão e recomendações
+    if (temTexto(cargo.conclusao)) {
+      content.push({ text: "Conclusão quanto ao risco ergonômico", style: "h3" });
+      content.push(...paragrafosPdf(cargo.conclusao));
+    }
+    const recs = (cargo.recomendacoes || []).map(txt).filter(Boolean);
+    if (recs.length) {
+      content.push({ text: "Recomendações ergonômicas", style: "h3" });
+      content.push({ ul: recs, margin: [10, 0, 0, 8], style: "lista" });
+    }
+  });
+
+  // ----- Resultados -----
+  if (cargos.length) {
+    titulo("Resultados");
+    content.push({ text: "Síntese dos resultados da avaliação por função, com o maior índice de risco da FMEA e a pontuação final do método RULA.", style: "paragrafo" });
+    numTabela += 1;
+    content.push({ text: `Tabela ${numTabela} – Síntese dos resultados por função`, style: "legenda" });
+    content.push({
+      table: {
+        headerRows: 1,
+        widths: ["*", 70, 76, 44, 44, 110],
+        dontBreakRows: true,
+        body: [
+          ["Função", "Maior IR (FMEA)", "Classificação", "RULA D", "RULA E", "Nível de ação (RULA)"].map((h) => ({ text: h, style: "th" })),
+          ...cargos.map((c) => {
+            const maior = Math.max(0, ...(c.fmea || []).map((l) => indiceRisco(l) || 0));
+            const cls = classificarRisco(maior);
+            const { d, e } = rulaFinais(c);
+            const pior = Math.max(Number(d) || 0, Number(e) || 0);
+            const nivel = nivelAcaoRula(pior);
+            return [
+              txt(c.nome) || "—",
+              { text: maior || "—", alignment: "center" },
+              cls ? { text: cls.classe, color: cls.cor, fillColor: cls.bg, bold: true, alignment: "center" } : { text: "—", alignment: "center" },
+              { text: d || "—", alignment: "center" },
+              { text: e || "—", alignment: "center" },
+              nivel ? { text: nivel.texto, color: nivel.cor, fillColor: nivel.bg, fontSize: 8.5 } : "—",
+            ];
+          }),
+        ],
+      },
+      layout: "laudoGrade",
+    });
+    content.push({ text: fonte, style: "fonte" });
+  }
+
+  // ----- Plano de ação (página deitada) -----
+  const ordem = { alta: 0, media: 1, baixa: 2 };
+  const acoes = (laudo.planoAcao.acoes || [])
+    .filter((a) => temTexto(a.oQue) || temTexto(a.porQue))
+    .sort((a, b) => (ordem[a.prioridade] ?? 1) - (ordem[b.prioridade] ?? 1));
+  titulo("Recomendações / Plano de ações", { orientacao: "landscape" });
+  if (acoes.length) {
+    content.push({
+      table: {
+        headerRows: 1,
+        widths: [42, "*", "*", 90, "*", 90, 70],
+        dontBreakRows: true,
+        body: [
+          ["PR", "O quê\n(ação proposta)", "Por quê\n(justificativa)", "Quem\n(responsável)", "Como", "Onde", "Quando\n(prazo)"].map((h) => ({ text: h, style: "th" })),
+          ...acoes.map((a) => {
+            const p = PRIORIDADES.find((x) => x.key === a.prioridade) || PRIORIDADES[1];
+            return [
+              { text: p.label, bold: true, color: "#fff", fillColor: p.color, alignment: "center", fontSize: 8.5 },
+              { text: txt(a.oQue), fontSize: 9 }, { text: txt(a.porQue), fontSize: 9 }, { text: txt(a.quem), fontSize: 9 },
+              { text: txt(a.como), fontSize: 9 }, { text: txt(a.onde), fontSize: 9 }, { text: txt(a.quando), fontSize: 9 },
+            ];
+          }),
+        ],
+      },
+      layout: "laudoGrade",
+    });
+    content.push({ text: TEXTO_NOTA_PRIORIDADE, style: "paragrafo", fontSize: 9, margin: [0, 8, 0, 0] });
+  } else {
+    content.push({ text: "Nenhuma ação cadastrada no plano de ação.", style: "paragrafo", color: PDF_CINZA });
+  }
+
+  // ----- Considerações finais e assinatura -----
+  titulo("Considerações finais", { orientacao: "portrait" });
+  content.push(...paragrafosPdf(laudo.planoAcao.consideracoes));
+  const assinatura = [];
+  assinatura.push({ text: `${localServicos ? localServicos + ", " : ""}${dataPorExtenso(dataEmissao)}.`, alignment: "right", margin: [0, 20, 0, 30] });
+  if (imagemValida(capa.assinatura)) assinatura.push({ image: capa.assinatura, fit: [180, 70], alignment: "center" });
+  else assinatura.push({ text: " ", margin: [0, 30, 0, 0] });
+  assinatura.push({ canvas: [{ type: "line", x1: 0, y1: 0, x2: 240, y2: 0, lineWidth: 0.8, lineColor: "#333" }], alignment: "center", margin: [0, 2, 0, 4] });
+  if (temTexto(resp.nome)) assinatura.push({ text: txt(resp.nome), alignment: "center", bold: true });
+  const detalheResp = [txt(resp.formacao), temTexto(resp.crefito) ? `CREFITO ${txt(resp.crefito)}` : ""].filter(Boolean).join(" · ");
+  if (detalheResp) assinatura.push({ text: detalheResp, alignment: "center", fontSize: 9.5, color: PDF_CINZA });
+  content.push({ stack: assinatura, unbreakable: true });
+
+  // ----- Referências e apêndice -----
+  tituloSemNumero("Referências");
+  REFERENCIAS_AET.forEach((r) => content.push({ text: r, style: "referencia" }));
+
+  tituloSemNumero("Apêndice 1 – Entrevista AET");
+  content.push({
+    table: {
+      widths: ["*", "*"],
+      body: [
+        ["Nome:", "Idade:"], ["Empresa:", "Data:"], ["Função:", "Escolaridade:"],
+        ["Horário de serviço / turno:", "Tempo que trabalha na empresa:"], ["Instalações:", "Observações:"],
+      ].map((l) => l.map((t) => ({ text: t, bold: true, fontSize: 9, margin: [0, 2, 0, 8] }))),
+    },
+    layout: "laudoGrade",
+    margin: [0, 0, 0, 10],
+  });
+  let numPergunta = 0;
+  ENTREVISTA_AET.forEach(({ grupo, itens }) => {
+    if (grupo) content.push({ text: grupo, style: "h3" });
+    itens.forEach((p) => {
+      numPergunta += 1;
+      content.push({ text: `${numPergunta}) ${p}`, fontSize: 9.5, margin: [0, 0, 0, 7] });
+    });
+  });
+  content.push({ text: "Assinatura do trabalhador: ________________________________________", margin: [0, 16, 0, 0] });
+
+  // ----- Anexos -----
+  tituloSemNumero("Anexo 1 – Índices de determinação do FMEA");
+  content.push({
+    table: {
+      headerRows: 1,
+      widths: [60, "*", "*", "*"],
+      body: [
+        ["Índice", "Ocorrência (O)", "Severidade (S)", "Condição ergonômica (C)"].map((h) => ({ text: h, style: "th" })),
+        [{ text: "1 – Baixo", bold: true }, "Eventual / esporádico: nenhuma ocorrência relacionada ao agente; exposição inferior a 10% do tempo (jornada ou ciclo).", "Remota: não gera sobrecargas humanas; pouca ou nenhuma interferência no processo.", "Boa: existem bons planos de controle para lidar com o risco."],
+        [{ text: "2 – Médio", bold: true }, "Intermitente: existem reclamações e ocorrências em termos de verbalizações; exposição de 11% a 30% do tempo.", "Improvável: gera situações de desconforto e fadiga; pode causar paradas momentâneas e pequenas perdas de produtividade.", "Razoável: existe um plano para lidar com o risco, mas há ausência de procedimentos formais e dúvidas sobre sua eficácia."],
+        [{ text: "3 – Alto", bold: true }, "Habitual / permanente: queixas frequentes e específicas ao agente, com indicadores e registros; exposição superior a 31% do tempo.", "Provável: riscos que podem prejudicar a saúde, levando a lesões e afastamentos; atrasos significativos de produção.", "Ruim / inadequada: não existe plano nem conscientização para lidar com o risco; práticas indicam descontrole; itens não atendem à legislação vigente."],
+      ].map((l, i) => (i === 0 ? l : l.map((c) => (typeof c === "string" ? { text: c, fontSize: 9 } : c)))),
+    },
+    layout: "laudoGrade",
+  });
+  content.push({ text: "Fonte: adaptado de Ginn et al. (1998).", style: "fonte" });
+
+  tituloSemNumero("Anexo 2 – Níveis de determinação de priorização de risco");
+  const faixas = [
+    ["1", 1, "Trivial", "Ação técnica normal ou sem risco significativo.", "Nenhuma ação é requerida e nenhum registro documental precisa ser mantido."],
+    ["2 a 3", 3, "Tolerável", "Improvável risco à saúde do trabalhador; relaciona-se mais a dificuldades esporádicas. É considerada uma ação técnica dentro da normalidade.", "Deve-se assegurar que os meios de controle sejam mantidos e monitorados."],
+    ["4 a 9", 9, "Moderado", "Situações consideradas causadoras de fadiga se desenvolvidas por longo período e/ou sem meios de controle.", "Devem ser implementados meios de controle/preventivos."],
+    ["12 a 18", 18, "Substancial", "Situações consideradas causadoras de lesões.", "Devem ser feitos estudos sistemáticos da atividade, com plano de melhoria aprovado pela alta direção para eliminar ou minimizar o risco em prazo determinado."],
+    ["27", 27, "Intolerável", "Situações potencialmente causadoras de lesões, doenças e acidentes graves, que podem gerar afastamentos ou incapacidades funcionais.", "Além do estudo sistemático, deve haver plano de melhoria de prazo imediato aprovado pela alta direção. A execução do plano deve ser monitorada e avaliada."],
+  ];
+  content.push({
+    table: {
+      headerRows: 1,
+      widths: [50, 70, "*", "*"],
+      body: [
+        ["IR", "Nível de risco", "Caracterização geral", "Equivalência na OHSAS 18001 / BS 8800"].map((h) => ({ text: h, style: "th" })),
+        ...faixas.map(([ir, ref, nome, carac, equiv]) => {
+          const cls = classificarRisco(ref);
+          return [
+            { text: ir, alignment: "center", bold: true },
+            { text: nome, bold: true, color: cls.cor, fillColor: cls.bg, alignment: "center" },
+            { text: carac, fontSize: 9 }, { text: equiv, fontSize: 9 },
+          ];
+        }),
+      ],
+    },
+    layout: "laudoGrade",
+  });
+  content.push({ text: "Fonte: OHSAS 18001 / BS 8800.", style: "fonte" });
+
+  tituloSemNumero("Anexo 3 – Tabelas do método RULA");
+  content.push(...montarTabelasRulaPdf());
+
+  tituloSemNumero("Anexo 4 – Certificado de capacitação");
+  if (imagemValida(laudo.anexos?.certificado)) {
+    content.push({ image: laudo.anexos.certificado, fit: [475, 640], alignment: "center" });
+  } else {
+    content.push({ text: "Certificado não anexado.", style: "paragrafo", color: PDF_CINZA });
+  }
+
+  const rodapeResp = [txt(resp.nome), temTexto(resp.crefito) ? `CREFITO ${txt(resp.crefito)}` : ""].filter(Boolean).join(" · ");
+
+  return {
+    pageSize: "A4",
+    pageMargins: [60, 62, 50, 58],
+    info: {
+      title: `AET – ${empresaNome}`,
+      author: txt(resp.nome) || "",
+      subject: "Análise Ergonômica do Trabalho",
+      creator: "ErgoLaudo",
+    },
+    header: (paginaAtual) => (paginaAtual === 1 ? null : {
+      margin: [60, 24, 50, 0],
+      columns: [
+        { text: `Análise Ergonômica do Trabalho – ${empresaNome}`, fontSize: 8, color: PDF_CINZA, width: "*" },
+        { text: `Revisão ${txt(capa.revisao) || "00"} · ${dataEmissao}`, fontSize: 8, color: PDF_CINZA, alignment: "right", width: "auto" },
+      ],
+    }),
+    footer: (paginaAtual, totalPaginas) => (paginaAtual === 1 ? null : {
+      margin: [60, 18, 50, 0],
+      columns: [
+        { text: rodapeResp, fontSize: 8, color: PDF_CINZA, width: "*" },
+        { text: `Página ${paginaAtual} de ${totalPaginas}`, fontSize: 8.5, color: "#333", alignment: "right", width: "auto" },
+      ],
+    }),
+    content,
+    styles: {
+      h1: { fontSize: 13, bold: true, color: PDF_COR, margin: [0, 0, 0, 10] },
+      h2: { fontSize: 11.5, bold: true, color: PDF_COR, margin: [0, 12, 0, 6] },
+      h2Cargo: { fontSize: 12.5, bold: true, color: PDF_COR, margin: [0, 0, 0, 4] },
+      h3: { fontSize: 10.5, bold: true, color: PDF_COR, margin: [0, 10, 0, 5] },
+      rotuloSecao: { fontSize: 9, bold: true, color: PDF_CINZA, characterSpacing: 0.5 },
+      paragrafo: { alignment: "justify", margin: [0, 0, 0, 8] },
+      citacao: { fontSize: 9.5, alignment: "justify", margin: [110, 2, 0, 10], lineHeight: 1.1 },
+      lista: { fontSize: 10.5 },
+      th: { bold: true, color: "#fff", fillColor: PDF_COR, fontSize: 9, alignment: "center" },
+      legenda: { fontSize: 9.5, bold: true, alignment: "center", margin: [0, 10, 0, 4] },
+      legendaFoto: { fontSize: 8.5, alignment: "center", color: "#333", margin: [0, 3, 0, 0] },
+      fonte: { fontSize: 8.5, color: PDF_CINZA, alignment: "center", margin: [0, 3, 0, 10] },
+      referencia: { fontSize: 10, margin: [0, 0, 0, 9] },
+      capaTitulo: { fontSize: 24, bold: true, color: PDF_COR, alignment: "center", lineHeight: 1.1, margin: [0, 50, 0, 6] },
+      capaSubtitulo: { fontSize: 12, color: PDF_CINZA, alignment: "center", characterSpacing: 1 },
+      capaRotulo: { fontSize: 9.5, color: PDF_CINZA, alignment: "center", margin: [0, 10, 0, 2] },
+      capaNome: { fontSize: 13, bold: true, alignment: "center" },
+      capaDetalhe: { fontSize: 10, color: "#333", alignment: "center" },
+      capaRodape: { fontSize: 8.5, color: PDF_CINZA, alignment: "center" },
+    },
+    defaultStyle: { font: "Roboto", fontSize: 10.5, lineHeight: 1.25, color: "#1C1F1D" },
+  };
+}
+
+// Pontuações finais do RULA (calculadora ou campos digitados)
+function rulaFinais(cargo) {
+  if (rulaCalcUsada(cargo?.rulaCalc)) {
+    const r = calcularRula(cargo.rulaCalc);
+    return { d: r.dir?.final ? String(r.dir.final) : "", e: r.esq?.final ? String(r.esq.final) : "" };
+  }
+  return { d: txt(cargo?.rula?.finalD), e: txt(cargo?.rula?.finalE) };
+}
+
+function montarRulaPdf(cargo) {
+  const calc = cargo?.rulaCalc;
+  const th = (t) => ({ text: t, style: "th" });
+  const c = (v, extra = {}) => ({ text: v === null || v === undefined || v === "" ? "–" : String(v), alignment: "center", ...extra });
+  const nivelCelula = (final) => {
+    const n = nivelAcaoRula(Number(final));
+    return n ? { text: `${final} – ${n.texto}`, bold: true, color: n.cor, fillColor: n.bg, fontSize: 9 } : c(final);
+  };
+  if (rulaCalcUsada(calc)) {
+    const r = calcularRula(calc);
+    const opcao = (grupo, v) => RULA_OPCOES[grupo]?.find((o) => o.v === v)?.t || "";
+    const sim = (b) => (b ? "Sim" : "Não");
+    const lado = (l) => l || {};
+    const D = lado(calc.dir), E = lado(calc.esq), rd = r.dir || {}, re = r.esq || {};
+    const forca = (v) => RULA_OPCOES.forca.find((o) => o.v === Number(v))?.t || "";
+    const corpoA = [
+      [th("Membros superiores (grupo A)"), th("Lado direito"), th("Lado esquerdo")],
+      ["Braço", opcao("braco", D.braco) || "–", opcao("braco", E.braco) || "–"],
+      ["Ombro elevado / braço abduzido / apoiado", `${sim(D.bracoElevado)} / ${sim(D.bracoAbduzido)} / ${sim(D.bracoApoiado)}`, `${sim(E.bracoElevado)} / ${sim(E.bracoAbduzido)} / ${sim(E.bracoApoiado)}`],
+      [{ text: "Pontuação do braço", bold: true }, c(rd.braco, { bold: true }), c(re.braco, { bold: true })],
+      ["Antebraço", opcao("antebraco", D.antebraco) || "–", opcao("antebraco", E.antebraco) || "–"],
+      ["Cruza a linha média / trabalha para fora do corpo", sim(D.antebracoLinhaMedia), sim(E.antebracoLinhaMedia)],
+      [{ text: "Pontuação do antebraço", bold: true }, c(rd.antebraco, { bold: true }), c(re.antebraco, { bold: true })],
+      ["Punho", opcao("punho", D.punho) || "–", opcao("punho", E.punho) || "–"],
+      ["Desvio de punho", sim(D.punhoDesvio), sim(E.punhoDesvio)],
+      [{ text: "Pontuação do punho", bold: true }, c(rd.punho, { bold: true }), c(re.punho, { bold: true })],
+      ["Rotação do punho", opcao("torcao", D.torcao) || "–", opcao("torcao", E.torcao) || "–"],
+      [{ text: "Postura A (Tabela A)", bold: true }, c(rd.posturaA, { bold: true }), c(re.posturaA, { bold: true })],
+      ["Atividade muscular (estática ou ≥ 4 vezes/min)", D.musculo ? "+1" : "0", E.musculo ? "+1" : "0"],
+      ["Força / carga", `+${Number(D.forca) || 0} ${forca(D.forca) ? "– " + forca(D.forca) : ""}`, `+${Number(E.forca) || 0} ${forca(E.forca) ? "– " + forca(E.forca) : ""}`],
+      [{ text: "Pontuação do membro superior (C)", bold: true, fillColor: PDF_FUNDO_ROTULO }, c(rd.pontuacaoC, { bold: true, fillColor: PDF_FUNDO_ROTULO }), c(re.pontuacaoC, { bold: true, fillColor: PDF_FUNDO_ROTULO })],
+    ].map((l) => l.map((x) => (typeof x === "string" ? { text: x, fontSize: 8.5 } : { fontSize: 8.5, ...x })));
+    const b = r.b || {};
+    const corpoB = [
+      [th("Pescoço, tronco e pernas (grupo B)"), th("Situação"), th("Pontuação")],
+      ["Pescoço", `${opcao("pescoco", calc.pescoco) || "–"}${calc.pescocoRotacao ? "; em rotação" : ""}${calc.pescocoLateral ? "; inclinado lateralmente" : ""}`, c(b.pescoco)],
+      ["Tronco", `${opcao("tronco", calc.tronco) || "–"}${calc.troncoRotacao ? "; em rotação" : ""}${calc.troncoLateral ? "; inclinado lateralmente" : ""}`, c(b.tronco)],
+      ["Pernas", opcao("pernas", calc.pernas) || "–", c(b.pernas)],
+      [{ text: "Postura B (Tabela B)", bold: true }, "", c(b.posturaB, { bold: true })],
+      ["Atividade muscular", calc.musculoB ? "Estática ou repetida" : "Não", c(calc.musculoB ? "+1" : "0")],
+      ["Força / carga", forca(calc.forcaB) || "–", c(`+${Number(calc.forcaB) || 0}`)],
+      [{ text: "Pontuação de tronco e membros inferiores (D)", bold: true, fillColor: PDF_FUNDO_ROTULO }, { text: "", fillColor: PDF_FUNDO_ROTULO }, c(b.pontuacaoD, { bold: true, fillColor: PDF_FUNDO_ROTULO })],
+    ].map((l) => l.map((x) => (typeof x === "string" ? { text: x, fontSize: 8.5 } : { fontSize: 8.5, ...x })));
+    return [
+      { table: { headerRows: 1, widths: [150, "*", "*"], dontBreakRows: true, body: corpoA }, layout: "laudoGrade", margin: [0, 0, 0, 8] },
+      { table: { headerRows: 1, widths: [150, "*", 60], dontBreakRows: true, body: corpoB }, layout: "laudoGrade", margin: [0, 0, 0, 8] },
+      {
+        table: {
+          widths: [150, "*", "*"],
+          body: [
+            [th("Resultado RULA (Tabela C)"), th("Lado direito"), th("Lado esquerdo")],
+            [{ text: "Pontuação final e nível de ação", bold: true, fontSize: 9 }, rd.final ? nivelCelula(rd.final) : c(""), re.final ? nivelCelula(re.final) : c("")],
+          ],
+        },
+        layout: "laudoGrade",
+        unbreakable: true,
+        margin: [0, 0, 0, 10],
+      },
+    ];
+  }
+  const m = cargo?.rula || {};
+  if (!Object.values(m).some(temTexto)) return null;
+  return [{
+    table: {
+      headerRows: 1,
+      widths: ["*", 90, 90],
+      dontBreakRows: true,
+      body: [
+        [th("Segmento"), th("Lado direito"), th("Lado esquerdo")],
+        ["Ombro (braço)", c(m.ombroD), c(m.ombroE)],
+        ["Antebraço", c(m.antebracoD), c(m.antebracoE)],
+        ["Punho", c(m.punhoD), c(m.punhoE)],
+        ["Pescoço", { ...c(m.pescoco), colSpan: 2 }, {}],
+        ["Tronco", { ...c(m.tronco), colSpan: 2 }, {}],
+        ["Pernas", { ...c(m.pernas), colSpan: 2 }, {}],
+        [{ text: "Resultado final", bold: true }, temTexto(m.finalD) ? nivelCelula(txt(m.finalD)) : c(""), temTexto(m.finalE) ? nivelCelula(txt(m.finalE)) : c("")],
+      ],
+    },
+    layout: "laudoGrade",
+    margin: [0, 0, 0, 10],
+  }];
+}
+
+const NR17_STATUS_TEXTO = { sim: "Sim", "não": "Não", nao: "Não", na: "N/A", adequado: "Adequado", inadequado: "Inadequado" };
+const NR17_STATUS_COR = { sim: "#2E7D4F", adequado: "#2E7D4F", "não": "#C0392B", nao: "#C0392B", inadequado: "#C0392B", na: PDF_CINZA };
+
+function montarChecklistNR17Pdf(ck) {
+  if (!ck) return [];
+  const saida = [];
+  const lt = ck.localTrabalho || {}, amb = ck.ambiental || {};
+  const status = (s) => (s ? { text: NR17_STATUS_TEXTO[s] || s, bold: true, color: NR17_STATUS_COR[s] || "#333", alignment: "center" } : { text: "–", alignment: "center", color: PDF_CINZA });
+  const local = tabelaRotuloValor([
+    ["Teto", lt.teto], ["Paredes", lt.paredes], ["Área aproximada", temTexto(lt.areaAprox) ? `${txt(lt.areaAprox)} m²` : ""],
+    ["Pé-direito", temTexto(lt.peDireito) ? `${txt(lt.peDireito)} m` : ""], ["Iluminação", lt.iluminacao], ["Ventilação", lt.ventilacao],
+  ]);
+  const unidade = (v, u) => (temTexto(v) ? `${txt(v)} ${u}` : "");
+  const ambiental = tabelaRotuloValor([
+    ["Iluminamento medido", unidade(amb.iluminamentoReal, "lux")], ["Iluminamento exigido (NHO 11)", unidade(amb.iluminamentoAbnt, "lux")],
+    ["Temperatura", unidade(amb.temperatura, "°C")], ["Umidade relativa do ar", unidade(amb.umidade, "%")],
+    ["Velocidade do ar", unidade(amb.velocidadeAr, "m/s")], ["Ruído", unidade(amb.ruido, "dB(A)")],
+    ["Nº de trabalhadores no local", amb.numTrabalhadores],
+  ]);
+  const itensMob = [...(ck.mobiliarioApoio || []), ...(ck.equipamentos || [])].filter((m) => temTexto(m.item) && m.status);
+  const respondidos = NR17_CHECKLIST_ITENS.flatMap((g) => g.itens.map((i) => ({ ...i, grupo: g.grupo })))
+    .filter((i) => ck.checklist?.[i.key]);
+  const medidas = (ck.medidas || []).map(txt).filter(Boolean);
+  if (!local && !ambiental && !itensMob.length && !respondidos.length && !medidas.length && !temTexto(ck.observacoes)) return [];
+
+  saida.push({ text: "Checklist NR-17", style: "h3" });
+  if (local) saida.push({ text: "Descrição do local de trabalho", bold: true, fontSize: 9.5, margin: [0, 0, 0, 4] }, local);
+  if (ambiental) saida.push({ text: "Condições ambientais", bold: true, fontSize: 9.5, margin: [0, 0, 0, 4] }, ambiental);
+  if (itensMob.length) {
+    saida.push({
+      table: {
+        headerRows: 1,
+        widths: ["*", 90],
+        body: [[{ text: "Mobiliário e equipamentos", style: "th" }, { text: "Situação", style: "th" }], ...itensMob.map((m) => [txt(m.item), status(m.status)])],
+      },
+      layout: "laudoGrade",
+      margin: [0, 0, 0, 10],
+    });
+  }
+  if (respondidos.length) {
+    const corpo = [[{ text: "Item verificado", style: "th" }, { text: "Atende", style: "th" }]];
+    let grupoAtual = "";
+    respondidos.forEach((i) => {
+      if (i.grupo !== grupoAtual) {
+        grupoAtual = i.grupo;
+        corpo.push([{ text: i.grupo, bold: true, color: PDF_COR, fillColor: PDF_FUNDO_ROTULO, colSpan: 2 }, {}]);
+      }
+      const img = ck.imagens?.[i.key];
+      corpo.push([
+        imagemValida(img)
+          ? { columns: [{ image: img, fit: [60, 45], width: 64 }, { text: i.label, fontSize: 9 }], columnGap: 6 }
+          : { text: i.label, fontSize: 9 },
+        status(ck.checklist[i.key]),
+      ]);
+    });
+    saida.push({ table: { headerRows: 1, widths: ["*", 60], dontBreakRows: true, body: corpo }, layout: "laudoGrade", margin: [0, 0, 0, 10] });
+  }
+  if (medidas.length) {
+    saida.push({ text: "Medidas de regularização", bold: true, fontSize: 9.5, margin: [0, 0, 0, 4] });
+    saida.push({ ul: medidas, margin: [10, 0, 0, 8] });
+  }
+  if (temTexto(ck.observacoes)) {
+    saida.push({ text: "Observações", bold: true, fontSize: 9.5, margin: [0, 0, 0, 4] });
+    saida.push({ text: txt(ck.observacoes), style: "paragrafo" });
+  }
+  return saida;
+}
+
+function montarTabelasRulaPdf() {
+  const th = (t) => ({ text: t, style: "th", fontSize: 8 });
+  const cel = (v) => ({ text: String(v), alignment: "center", fontSize: 8 });
+  const saida = [];
+  saida.push({ text: "Tabela A – Membros superiores (braço, antebraço, punho e rotação do punho)", style: "legenda" });
+  const cabA1 = [th("Braço"), th("Antebraço"), ...[1, 2, 3, 4].map((p) => ({ ...th(`Punho ${p}`), colSpan: 2 })).flatMap((x) => [x, {}])];
+  const cabA2 = [{ text: "", fillColor: PDF_COR }, { text: "", fillColor: PDF_COR }, ...[1, 2, 3, 4].flatMap(() => [th("Rot. 1"), th("Rot. 2")])];
+  const corpoA = [cabA1, cabA2];
+  RULA_TABELA_A.forEach((linhasBraco, b) => {
+    linhasBraco.forEach((valores, a) => {
+      corpoA.push([a === 0 ? { ...cel(b + 1), rowSpan: 3, bold: true } : {}, cel(a + 1), ...valores.map(cel)]);
+    });
+  });
+  saida.push({ table: { headerRows: 2, widths: [36, 48, "*", "*", "*", "*", "*", "*", "*", "*"], body: corpoA }, layout: "laudoGrade" });
+
+  saida.push({ text: "Tabela B – Pescoço, tronco e pernas", style: "legenda", margin: [0, 16, 0, 4] });
+  const cabB1 = [th("Pescoço"), ...[1, 2, 3, 4, 5, 6].flatMap((t) => [{ ...th(`Tronco ${t}`), colSpan: 2 }, {}])];
+  const cabB2 = [{ text: "", fillColor: PDF_COR }, ...[1, 2, 3, 4, 5, 6].flatMap(() => [th("P1"), th("P2")])];
+  const corpoB = [cabB1, cabB2, ...RULA_TABELA_B.map((valores, p) => [{ ...cel(p + 1), bold: true }, ...valores.map(cel)])];
+  saida.push({ table: { headerRows: 2, widths: [44, ...Array(12).fill("*")], body: corpoB }, layout: "laudoGrade" });
+  saida.push({ text: "P1 = pernas e pés bem apoiados; P2 = pernas e pés sem apoio adequado.", style: "fonte" });
+
+  saida.push({ text: "Tabela C – Pontuação final", style: "legenda", margin: [0, 12, 0, 4], pageBreak: "before" });
+  const cabC = [th("C \\ D"), ...[1, 2, 3, 4, 5, 6, "7+"].map((d) => th(`D ${d}`))];
+  const corpoC = [cabC, ...RULA_TABELA_C.map((valores, i) => [{ ...cel(i === 7 ? "8+" : i + 1), bold: true }, ...valores.map((v) => {
+    const n = nivelAcaoRula(v);
+    return { ...cel(v), fillColor: n?.bg, color: n?.cor, bold: true };
+  })])];
+  saida.push({ table: { headerRows: 1, widths: [50, ...Array(7).fill("*")], body: corpoC }, layout: "laudoGrade" });
+  saida.push({ text: "C = pontuação do membro superior; D = pontuação de tronco e membros inferiores.", style: "fonte" });
+
+  saida.push({ text: "Níveis de ação", style: "legenda", margin: [0, 12, 0, 4] });
+  saida.push({
+    table: {
+      headerRows: 1,
+      widths: [70, 60, "*"],
+      body: [
+        [th("Pontuação"), th("Nível"), th("Ação")],
+        ...RULA_NIVEIS.map((n, i) => [
+          cel(["1 ou 2", "3 ou 4", "5 ou 6", "7"][i]),
+          { ...cel(n.nivel), bold: true, color: n.cor, fillColor: n.bg },
+          { text: n.texto, fontSize: 9 },
+        ]),
+      ],
+    },
+    layout: "laudoGrade",
+  });
+  saida.push({ text: "Fonte: McAtamney e Corlett (1993).", style: "fonte" });
+  return saida;
+}
+
+const PDF_LAYOUTS = {
+  laudoGrade: {
+    hLineWidth: () => 0.6,
+    vLineWidth: () => 0.6,
+    hLineColor: () => PDF_BORDA,
+    vLineColor: () => PDF_BORDA,
+    paddingLeft: () => 5,
+    paddingRight: () => 5,
+    paddingTop: () => 3,
+    paddingBottom: () => 3,
+  },
+};
+
+function nomeArquivoPdf(laudo) {
+  const empresa = txt(laudo?.dadosGerais?.empresa?.razaoSocial) || "laudo";
+  const limpo = empresa.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^A-Za-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 60);
+  const d = new Date();
+  return `AET_${limpo || "laudo"}_${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}.pdf`;
+}
+
+// Gera e baixa o PDF. O laudo precisa estar com as imagens já restauradas.
+async function baixarPdfLaudo(laudo, opcoes = {}) {
+  const pdfMake = await carregarPdfMake();
+  pdfMake.addTableLayouts(PDF_LAYOUTS);
+  const definicao = montarDocumentoPdf(laudo, opcoes);
+  const documento = pdfMake.createPdf(definicao);
+  const nome = opcoes.nomeArquivo || nomeArquivoPdf(laudo);
+  await documento.download(nome);
+  return nome;
 }
 
 // ==================== AppLaudo ====================
@@ -7774,6 +8880,7 @@ function AppLaudo() {
   const excluirProjeto = async (id, nome) => {
     if (!window.confirm(`Excluir o projeto "${nome}"? As informações dele serão apagadas. Laudos já gerados continuam no histórico.`)) return;
     try {
+      projetosExcluidos.add(id);
       await aguardarGravacao([deleteDoc(refProjeto(uid, id))]);
       setProjetos((lista) => lista.filter((pj) => pj.id !== id));
       if (id === projetoAtualId) { setProjetoAtualId(null); setLaudo(emptyLaudo()); setTela("projetos"); }
@@ -7931,13 +9038,18 @@ function AppLaudo() {
   const nomesJaAdicionados = (laudo.cargos || []).map((c) => c.nome).filter(Boolean);
 
   // ---------- PDF export ----------
-  // A geração real do PDF (via API Python/ReportLab) lê o objeto `laudo` diretamente.
-  // O modal simula o fluxo e salva o registro até a integração com o backend.
+  // O PDF é montado no aparelho (baixarPdfLaudo) e depois o laudo é registrado no histórico.
 
   const handleGerarPdf = () => setMostrarModalGeracao(true);
 
   const handleConfirmarGeracao = async (valorCobrado, manterInformacoes) => {
     const id = projetoAtualId;
+    try {
+      await baixarPdfLaudo(laudo);
+    } catch (erro) {
+      alert("Não foi possível gerar o PDF: " + (erro?.message || "erro desconhecido") + ". Verifique a internet e tente de novo.");
+      return;
+    }
     try {
       // Cópia completa do laudo, com as imagens como referência (cabe no Firestore)
       const { dados, envios } = await prepararLaudoParaNuvem(uid, laudo);
@@ -7964,18 +9076,19 @@ function AppLaudo() {
 
       if (manterInformacoes) {
         atualizarResumo(id, laudo, { status: "gerado", geradoEm: agora.getTime() });
-        mostrarAviso("Laudo registrado. As informações continuam salvas neste projeto: se encontrar algum erro, corrija e gere de novo.");
+        mostrarAviso("PDF baixado e laudo registrado. As informações continuam salvas neste projeto: se encontrar algum erro, corrija e gere de novo.");
       } else {
         // Não: o projeto sai da lista; o registro (com a cópia do laudo) fica no histórico
+        projetosExcluidos.add(id);
         await aguardarGravacao([deleteDoc(refProjeto(uid, id))]);
         setProjetos((lista) => lista.filter((pj) => pj.id !== id));
         setProjetoAtualId(null);
         setLaudo(emptyLaudo());
         setTela("projetos");
-        mostrarAviso("Laudo registrado. O projeto foi removido da lista; o registro está no histórico e pode ser reaberto em Configurações.");
+        mostrarAviso("PDF baixado e laudo registrado. O projeto foi removido da lista; o PDF pode ser baixado de novo pelo Histórico.");
       }
     } catch (erro) {
-      alert("Não foi possível registrar o laudo: " + mensagemErroFirebase(erro));
+      alert("O PDF foi baixado, mas não foi possível registrar o laudo no histórico: " + mensagemErroFirebase(erro));
     }
   };
 
@@ -8079,8 +9192,15 @@ function AppLaudo() {
   if (telaAtual === "historico") {
     const registrosComAcao = (registros || []).map((r) => ({
       ...r,
-      onAbrirArquivo: () => {
-        alert("A abertura do arquivo PDF ainda não está disponível. Use o botão \"Reabrir\" em Configurações para recuperar um laudo seu.");
+      onAbrirArquivo: async () => {
+        try {
+          const restaurado = await restaurarImagens(r.laudoSnapshot || {}, r.uid || uid);
+          const d = r.data ? new Date(r.data) : null;
+          const dataEmissao = d && !isNaN(d) ? d.toLocaleDateString("pt-BR") : undefined;
+          await baixarPdfLaudo(restaurado, { dataEmissao });
+        } catch (erro) {
+          alert("Não foi possível gerar o PDF deste laudo: " + (erro?.code ? mensagemErroFirebase(erro) : erro?.message || "erro desconhecido"));
+        }
       },
     }));
     return (
