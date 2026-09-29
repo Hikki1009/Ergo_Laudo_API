@@ -3,8 +3,8 @@ import {
   ChevronDown, ChevronUp, X, Plus, Trash2, Check, ArrowLeft,
   ClipboardList, ClipboardCheck, Building2, Users, HardHat,
   FolderOpen, FileDown, ChevronRight, Camera, Bell, FileText, Shield,
-  Settings, Sun, Moon, Folder, File,
-  User, Mail, CreditCard,
+  Settings, Sun, Moon, Folder,
+  User, Mail, CreditCard, Eye, EyeOff, BookOpen, Key,
 } from "lucide-react";
 import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -14,6 +14,7 @@ import { initializeApp } from "firebase/app";
 import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, sendPasswordResetEmail, signOut,
+  setPersistence, browserLocalPersistence, browserSessionPersistence,
 } from "firebase/auth";
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
@@ -134,6 +135,7 @@ let db = null;
 if (FIREBASE_CONFIGURADO) {
   const firebaseApp = initializeApp(firebaseConfig);
   auth = getAuth(firebaseApp);
+  auth.languageCode = "pt-BR"; // e-mails do Firebase (ex.: redefinir senha) em português
   try {
     // Cache no aparelho: o app continua funcionando sem internet e sincroniza depois
     db = initializeFirestore(firebaseApp, {
@@ -6396,7 +6398,7 @@ function ConfirmarGeracaoModal({ empresaNome, onConfirm, onCancel }) {
 // `isAdmin` toggles between the personal view (own laudos only) and the
 // admin view (everyone's laudos, with the commission reference column).
 
-function Historico({ onClose, registros = [], isAdmin = false }) {
+function Historico({ onClose, registros = [], isAdmin = false, emAba = false, onReabrir, onExcluir }) {
   const [ultimaVisita, setUltimaVisita] = useState(null);
   const [baixandoId, setBaixandoId] = useState(null);
   const baixarArquivo = async (reg) => {
@@ -6431,7 +6433,7 @@ function Historico({ onClose, registros = [], isAdmin = false }) {
   const registrosOrdenados = [...registros].sort((a, b) => new Date(b.data) - new Date(a.data));
 
   return (
-    <div className="page">
+    <div className="page" style={emAba ? { paddingBottom: 90 } : undefined}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap');
 
@@ -6589,6 +6591,34 @@ function Historico({ onClose, registros = [], isAdmin = false }) {
         .empty-historico svg { margin-bottom: 12px; opacity: 0.4; }
         .empty-historico p { font-size: 14px; margin: 0; line-height: 1.5; }
 
+        .registro-acoes {
+          display: flex;
+          gap: 8px;
+          margin-top: 10px;
+          padding-top: 10px;
+          border-top: 1px solid #F0EEE6;
+        }
+        .registro-acao-btn {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          background: #F4F6FA;
+          border: 1.5px solid #DDE3EC;
+          color: #0A2647;
+          border-radius: 8px;
+          padding: 7px 11px;
+          font-size: 12.5px;
+          font-weight: 600;
+          font-family: 'Inter', sans-serif;
+          cursor: pointer;
+        }
+        .registro-acao-excluir {
+          margin-left: auto;
+          background: #fff;
+          border-color: #C0392B40;
+          color: #C0392B;
+        }
+
         .admin-note {
           font-size: 12px;
           color: #8A8A82;
@@ -6602,9 +6632,11 @@ function Historico({ onClose, registros = [], isAdmin = false }) {
 
       <div className="topbar">
         <div className="topbar-row">
-          <button className="back-btn" onClick={onClose} aria-label="Voltar">
-            <ArrowLeft size={19} />
-          </button>
+          {!emAba && (
+            <button className="back-btn" onClick={onClose} aria-label="Voltar">
+              <ArrowLeft size={19} />
+            </button>
+          )}
           <p className="topbar-eyebrow">
             {isAdmin ? "Visão administrativa" : "ErgoLaudo"}
             {isAdmin && <span className="admin-tag">ADMIN</span>}
@@ -6632,7 +6664,7 @@ function Historico({ onClose, registros = [], isAdmin = false }) {
         {registrosOrdenados.length === 0 ? (
           <div className="empty-historico">
             <FileText size={32} />
-            <p>Nenhum laudo gerado ainda.</p>
+            <p>Nenhum laudo gerado ainda.<br />Os laudos aparecem aqui depois de "Gerar PDF" em um projeto.</p>
           </div>
         ) : (
           registrosOrdenados.map((reg) => {
@@ -6660,6 +6692,21 @@ function Historico({ onClose, registros = [], isAdmin = false }) {
                     </span>
                   )}
                 </div>
+                {(onReabrir && reg.laudoSnapshot) || onExcluir ? (
+                  <div className="registro-acoes">
+                    {onReabrir && reg.laudoSnapshot && (
+                      <button className="registro-acao-btn" onClick={() => onReabrir(reg)} disabled={!!baixandoId}>
+                        <FolderOpen size={14} /> Reabrir como projeto
+                      </button>
+                    )}
+                    {onExcluir && (
+                      <button className="registro-acao-btn registro-acao-excluir" onClick={() => onExcluir(reg)} disabled={!!baixandoId}
+                        aria-label={`Excluir o laudo ${reg.empresaNome || ""} da lista`}>
+                        <Trash2 size={14} /> Excluir
+                      </button>
+                    )}
+                  </div>
+                ) : null}
               </div>
             );
           })
@@ -8188,9 +8235,64 @@ Esta Política pode ser atualizada. A nova versão será apresentada no aplicati
 ## Contato do encarregado (LGPD)
 ${TITULAR_NOME} — ${CONTATO_EMAIL}`;
 
+const TEXTO_MANUAL = `Guia rápido para elaborar a Análise Ergonômica do Trabalho (AET) no ErgoLaudo.
+## 1. Acesso à conta
+• Criar conta: toque em "Criar conta", informe nome completo, e-mail e senha (mínimo de 6 caracteres) e aceite os Termos de Uso.
+• Ver a senha: toque no ícone do olho dentro do campo de senha para mostrar ou esconder o que foi digitado.
+• Manter conectado: com a opção "Manter conectado neste aparelho" marcada, o app entra sozinho nas próximas vezes. Desmarque em computadores compartilhados.
+• Esqueci minha senha: na tela de entrada, toque em "Esqueci minha senha", informe o e-mail da conta e toque em "Enviar link". Abra o e-mail recebido (confira também a caixa de spam), crie a nova senha e volte ao app.
+• Alterar a senha estando conectado: em Configurações > Conta, toque em "Alterar senha". O link chega no e-mail da conta.
+## 2. Meus Projetos
+• Cada laudo é um projeto. Toque em "Novo projeto", dê um nome (ex.: AET Construtora Silva — 2026) e comece.
+• Você pode ter vários projetos ao mesmo tempo e alternar entre eles quando quiser.
+• Tudo é salvo automaticamente na nuvem enquanto você preenche. "Salvar e sair" grava e volta para a lista.
+• Duplicar cria uma cópia completa (útil para a revisão de um laudo ou para outra unidade da mesma empresa). Também é possível Renomear e Excluir.
+## 3. Dados Gerais
+• Preencha a empresa, o contrato (se houver) e o responsável técnico. Esses dados vão para a capa e para as tabelas de identificação do PDF.
+• Capa e datas: escolha as datas no calendário. A validade da AET é calculada automaticamente a partir da data de encerramento da coleta.
+• Envie o logo da consultoria, o logo do cliente e a foto da sua assinatura (fundo branco, boa iluminação).
+• Os textos de Introdução, Conceito, Legislação, Demanda e Metodologia já vêm prontos e podem ser editados em cada laudo.
+## 4. Dados da População
+• Informe o total de trabalhadores por sexo, a idade média e as respostas das entrevistas (escolaridade, queixas, tempo de empresa, posturas, transporte de cargas, micropausas, autonomia e comunicação).
+• Os gráficos são montados sozinhos e entram no PDF.
+## 5. Cargos
+• Use "Selecionar cargos" para escolher da lista (ou cadastrar os seus) e toque no cargo para preencher.
+• Condições Físicas: instalações, ferramentas, descrição das funções, jornada, pausas, ritmo, postura, aspectos cognitivos e mobiliário.
+• Registro Fotográfico: adicione fotos do posto de trabalho e escreva a legenda de cada uma.
+• Riscos Ergonômicos (eSocial): descreva a situação encontrada em cada categoria. Deixe em branco a categoria sem risco.
+• Tabela FMEA: para cada risco, marque Ocorrência, Severidade e Condição ergonômica. O Índice de Risco (IR = O × S × C) e a classificação (Trivial a Intolerável) são calculados na hora.
+• RULA: marque a posição de cada segmento. A pontuação final dos lados direito e esquerdo é calculada pelas tabelas oficiais do método.
+• Checklist NR-17: local de trabalho, medições ambientais, mobiliário e itens de conformidade (Sim, Não ou N/A).
+• Participação dos Trabalhadores: registre quem foi entrevistado e a data de apresentação dos resultados (item 17.3.8 da NR-17).
+• Conclusão e Recomendações: escreva o diagnóstico do cargo e as recomendações.
+• Toque em "Salvar Cargo" ao terminar. Se faltar algo importante, o app avisa.
+## 6. Plano de Ação
+• Os riscos da FMEA de todos os cargos aparecem ordenados do maior para o menor. Toque em "Criar ação" para gerar a ação já com a prioridade e a justificativa.
+• Complete o quê, por quê, quem, como, onde e quando.
+• Revise as Considerações Finais, que também podem ser editadas.
+## 7. Anexos
+• Envie a imagem do seu certificado de capacitação. Se ele estiver em PDF, tire um print da página.
+## 8. Gerar o PDF
+• No menu do projeto, toque em "Gerar PDF".
+• Informe o valor cobrado (opcional, só para o seu controle) e responda se quer manter as informações salvas: "Sim" mantém o projeto para correções; "Não" tira o projeto da lista.
+• O arquivo é baixado no aparelho (pasta Downloads) com o nome AET_nome-da-empresa_data.pdf.
+• Encontrou um erro depois? Abra o projeto, corrija e gere de novo.
+## 9. Laudos gerados
+• A barra de baixo tem três abas: Projetos, Laudos gerados e Configurações.
+• Na aba Laudos gerados ficam todos os laudos que você já gerou. "Baixar PDF" gera o arquivo de novo a qualquer momento.
+• "Reabrir como projeto" cria um novo projeto a partir do laudo (útil para revisões), e "Excluir" tira o laudo da sua lista.
+## 10. Sem internet
+• O app continua funcionando sem internet no mesmo aparelho. As alterações são enviadas para a nuvem quando a conexão voltar.
+• Para gerar o PDF pela primeira vez no aparelho é preciso estar conectado.
+## 11. Dicas
+• Fotos muito grandes são reduzidas automaticamente para não pesar.
+• Use o mesmo e-mail em todos os aparelhos: seus projetos aparecem em qualquer um deles.
+• Dúvidas ou sugestões: ${CONTATO_EMAIL}.`;
+
 const DOCUMENTOS_LEGAIS = {
   termos: { titulo: "Termos de Uso", texto: TEXTO_TERMOS_USO },
   privacidade: { titulo: "Política de Privacidade", texto: TEXTO_PRIVACIDADE },
+  manual: { titulo: "Manual de uso", texto: TEXTO_MANUAL },
 };
 
 // Dados de quem está criando conta, usados logo após o cadastro (o login do
@@ -8326,6 +8428,8 @@ function TelaLogin({ cor = "#0A2647" }) {
   const [enviando, setEnviando] = useState(false);
   const [aceitou, setAceitou] = useState(false);
   const [docAberto, setDocAberto] = useState(null);
+  const [verSenha, setVerSenha] = useState(false);
+  const [manterConectado, setManterConectado] = useState(true);
 
   const trocarModo = (novo) => { setModo(novo); setErro(""); setAviso(""); };
 
@@ -8339,6 +8443,10 @@ function TelaLogin({ cor = "#0A2647" }) {
     if (modo === "criar" && !aceitou) return setErro("Para criar a conta, aceite os Termos de Uso e a Política de Privacidade.");
     setEnviando(true);
     try {
+      if (modo !== "recuperar") {
+        // Conectado neste aparelho até sair, ou só enquanto o navegador estiver aberto
+        await setPersistence(auth, manterConectado ? browserLocalPersistence : browserSessionPersistence);
+      }
       if (modo === "entrar") {
         await signInWithEmailAndPassword(auth, emailLimpo, senha);
       } else if (modo === "criar") {
@@ -8350,7 +8458,7 @@ function TelaLogin({ cor = "#0A2647" }) {
         }, { merge: true });
       } else {
         await sendPasswordResetEmail(auth, emailLimpo);
-        setAviso("Enviamos um link para redefinir a senha. Confira seu e-mail (e a caixa de spam).");
+        setAviso(`Enviamos um link para ${emailLimpo}. Abra o e-mail (confira também a caixa de spam), crie a nova senha e depois volte aqui para entrar.`);
       }
     } catch (err) {
       setErro(mensagemErroFirebase(err));
@@ -8393,10 +8501,29 @@ function TelaLogin({ cor = "#0A2647" }) {
         </label>
         {modo !== "recuperar" && (
           <label style={rotulo}>Senha
-            <input style={campo} type="password" value={senha} onChange={(e) => setSenha(e.target.value)}
-              autoComplete={modo === "criar" ? "new-password" : "current-password"}
-              placeholder={modo === "criar" ? "Mínimo de 6 caracteres" : "Sua senha"} />
+            <span style={{ position: "relative", display: "block" }}>
+              <input style={{ ...campo, paddingRight: 46 }} type={verSenha ? "text" : "password"} value={senha} onChange={(e) => setSenha(e.target.value)}
+                autoComplete={modo === "criar" ? "new-password" : "current-password"}
+                placeholder={modo === "criar" ? "Mínimo de 6 caracteres" : "Sua senha"} />
+              <button type="button" onClick={() => setVerSenha((v) => !v)}
+                aria-label={verSenha ? "Esconder senha" : "Mostrar senha"} title={verSenha ? "Esconder senha" : "Mostrar senha"}
+                style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", marginTop: 3, background: "none", border: "none", padding: 8, cursor: "pointer", color: "#6B6B63", display: "flex" }}>
+                {verSenha ? <EyeOff size={19} /> : <Eye size={19} />}
+              </button>
+            </span>
           </label>
+        )}
+        {modo !== "recuperar" && (
+          <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: "#44473F", margin: "-4px 0 14px", cursor: "pointer" }}>
+            <input type="checkbox" checked={manterConectado} onChange={(e) => setManterConectado(e.target.checked)}
+              style={{ width: 18, height: 18, flexShrink: 0, accentColor: cor }} />
+            Manter conectado neste aparelho
+          </label>
+        )}
+        {modo === "recuperar" && (
+          <p style={{ fontSize: 13, color: "#6B6B63", lineHeight: 1.5, margin: "-4px 0 14px" }}>
+            Informe o e-mail da sua conta. Você vai receber um link para criar uma nova senha.
+          </p>
         )}
 
         {modo === "criar" && <CaixaAceite marcado={aceitou} onMarcar={setAceitou} onAbrir={setDocAberto} cor={cor} />}
@@ -8428,6 +8555,8 @@ function TelaLogin({ cor = "#0A2647" }) {
           <button type="button" onClick={() => setDocAberto("termos")} style={{ ...linkBtn("#8A8A82"), fontSize: 11.5, fontWeight: 600 }}>Termos de Uso</button>
           {" · "}
           <button type="button" onClick={() => setDocAberto("privacidade")} style={{ ...linkBtn("#8A8A82"), fontSize: 11.5, fontWeight: 600 }}>Privacidade</button>
+          {" · "}
+          <button type="button" onClick={() => setDocAberto("manual")} style={{ ...linkBtn("#8A8A82"), fontSize: 11.5, fontWeight: 600 }}>Manual de uso</button>
           <br />{AVISO_COPYRIGHT}
         </div>
       </form>
@@ -8659,7 +8788,7 @@ function AppLaudo() {
   const [projetoAtualId, setProjetoAtualId] = useState(null);
   const [abrindoId, setAbrindoId] = useState(null);
   const [aviso, setAviso] = useState("");
-  const [abaAtiva, setAbaAtiva] = useState("laudo"); // "laudo" | "config"
+  const [abaAtiva, setAbaAtiva] = useState("laudo"); // "laudo" | "gerados" | "config"
   const [tema, setTema] = useState(() => lerLocalAntigo("ergolaudo-tema") || { cor: "#0A2647", modoEscuro: false });
   const [cargoAbertoId, setCargoAbertoId] = useState(null);
   const [mostrarModalGeracao, setMostrarModalGeracao] = useState(false);
@@ -8704,6 +8833,7 @@ function AppLaudo() {
             ? p.cargosPersonalizados
             : Array.isArray(cargosLocais) ? cargosLocais : [],
           ...((p.aceiteTermos || pendente?.aceiteTermos) ? { aceiteTermos: p.aceiteTermos || pendente.aceiteTermos } : {}),
+          registrosOcultos: Array.isArray(p.registrosOcultos) ? p.registrosOcultos : [],
         };
 
         // Projetos da conta (só o resumo; as imagens são baixadas ao abrir)
@@ -8938,6 +9068,7 @@ function AppLaudo() {
       if (projetoAtualId) await salvarLaudoNaNuvem(uid, projetoAtualId, laudo);
     } catch {}
     await signOut(auth);
+    setShowSplash(false); // depois de sair, vai direto para a tela de entrar
     cacheImagens.clear();
     imagensJaEnviadas.clear();
     setLaudo(emptyLaudo());
@@ -8962,7 +9093,29 @@ function AppLaudo() {
   };
 
   const usuarioAtual = { nome: perfil.nome, email: usuario?.email || "", isAdmin };
-  const meusRegistros = registros.filter((r) => r.uid === uid);
+  // Laudos que o profissional excluiu da própria lista continuam no histórico do admin
+  const ocultos = new Set(perfil.registrosOcultos || []);
+  const meusRegistros = registros.filter((r) => r.uid === uid && !ocultos.has(r.id));
+
+  const excluirRegistroDaLista = (r) => {
+    if (!window.confirm(`Excluir o laudo "${r.empresaNome || "sem nome"}" da sua lista? Ele deixa de aparecer para você.`)) return;
+    const lista = [...new Set([...(perfil.registrosOcultos || []), r.id])];
+    setPerfil((p) => ({ ...p, registrosOcultos: lista }));
+    setDoc(doc(db, "users", uid), { registrosOcultos: lista }, { merge: true })
+      .catch((erro) => alert("Não foi possível excluir o laudo: " + mensagemErroFirebase(erro)));
+  };
+
+  const enviarLinkNovaSenha = async () => {
+    const email = usuario?.email;
+    if (!email) return;
+    if (!window.confirm(`Enviar um link para criar uma nova senha para ${email}?`)) return;
+    try {
+      await sendPasswordResetEmail(auth, email);
+      alert(`Enviamos o link para ${email}. Abra o e-mail (confira também a caixa de spam) e crie a nova senha.`);
+    } catch (erro) {
+      alert("Não foi possível enviar o link: " + mensagemErroFirebase(erro));
+    }
+  };
 
   const irParaMenu = () => setTela("menu");
 
@@ -9103,12 +9256,11 @@ function AppLaudo() {
 
   if (!FIREBASE_CONFIGURADO) return <TelaFirebaseNaoConfigurado />;
 
-  // Splash screen — mostrada antes de qualquer tela
-  if (showSplash) {
+  if (usuario === undefined) return <TelaCarregando cor={COR} texto="Verificando acesso..." />;
+  // Quem já está conectado entra direto; a abertura aparece só antes do login
+  if (usuario === null && showSplash) {
     return <TelaSplash cor={COR} onContinuar={() => setShowSplash(false)} />;
   }
-
-  if (usuario === undefined) return <TelaCarregando cor={COR} texto="Verificando acesso..." />;
   if (usuario === null) return <TelaLogin cor={COR} />;
 
   if (erroCarregamento) {
@@ -9133,7 +9285,7 @@ function AppLaudo() {
   }
 
   // Sem projeto aberto, a aba Laudo mostra a lista de projetos
-  const telaAtual = projetoAtualId ? tela : (tela === "historico" ? "historico" : "projetos");
+  const telaAtual = projetoAtualId ? tela : "projetos";
 
   if (telaAtual === "dadosGerais") {
     return <DadosGerais dados={laudo.dadosGerais} onChange={setDadosGerais} onClose={irParaMenu} />;
@@ -9189,29 +9341,6 @@ function AppLaudo() {
     );
   }
 
-  if (telaAtual === "historico") {
-    const registrosComAcao = (registros || []).map((r) => ({
-      ...r,
-      onAbrirArquivo: async () => {
-        try {
-          const restaurado = await restaurarImagens(r.laudoSnapshot || {}, r.uid || uid);
-          const d = r.data ? new Date(r.data) : null;
-          const dataEmissao = d && !isNaN(d) ? d.toLocaleDateString("pt-BR") : undefined;
-          await baixarPdfLaudo(restaurado, { dataEmissao });
-        } catch (erro) {
-          alert("Não foi possível gerar o PDF deste laudo: " + (erro?.code ? mensagemErroFirebase(erro) : erro?.message || "erro desconhecido"));
-        }
-      },
-    }));
-    return (
-      <Historico
-        onClose={irParaMenu}
-        registros={usuarioAtual.isAdmin ? registrosComAcao : registrosComAcao.filter((r) => r.uid === uid)}
-        isAdmin={usuarioAtual.isAdmin}
-      />
-    );
-  }
-
   const CORES_DISPONIVEIS = [
     { cor: "#0A2647", nome: "Azul Noite" },
     { cor: "#1B4332", nome: "Verde Floresta" },
@@ -9229,7 +9358,8 @@ function AppLaudo() {
       display: "flex", zIndex: 100,
     }}>
       {[
-        { key: "laudo", label: "Laudo", Icon: ClipboardList },
+        { key: "laudo", label: "Projetos", Icon: FolderOpen },
+        { key: "gerados", label: "Laudos gerados", Icon: FileText },
         { key: "config", label: "Configurações", Icon: Settings },
       ].map(({ key, label, Icon }) => (
         <button key={key}
@@ -9250,6 +9380,35 @@ function AppLaudo() {
     </div>
   );
 
+  // ---------- Aba "Laudos gerados" ----------
+  if (abaAtiva === "gerados") {
+    const registrosComAcao = (registros || []).map((r) => ({
+      ...r,
+      onAbrirArquivo: async () => {
+        try {
+          const restaurado = await restaurarImagens(r.laudoSnapshot || {}, r.uid || uid);
+          const d = r.data ? new Date(r.data) : null;
+          const dataEmissao = d && !isNaN(d) ? d.toLocaleDateString("pt-BR") : undefined;
+          await baixarPdfLaudo(restaurado, { dataEmissao });
+        } catch (erro) {
+          alert("Não foi possível gerar o PDF deste laudo: " + (erro?.code ? mensagemErroFirebase(erro) : erro?.message || "erro desconhecido"));
+        }
+      },
+    }));
+    return (
+      <>
+        <Historico
+          emAba
+          registros={usuarioAtual.isAdmin ? registrosComAcao : registrosComAcao.filter((r) => r.uid === uid && !ocultos.has(r.id))}
+          isAdmin={usuarioAtual.isAdmin}
+          onReabrir={(r) => { setAbaAtiva("laudo"); reabrirRegistro(r); }}
+          onExcluir={usuarioAtual.isAdmin ? null : excluirRegistroDaLista}
+        />
+        <NavBar />
+      </>
+    );
+  }
+
   if (abaAtiva !== "config" && telaAtual === "projetos") {
     return (
       <>
@@ -9264,7 +9423,7 @@ function AppLaudo() {
           onRenomear={renomearProjeto}
           onExcluir={excluirProjeto}
           onDuplicar={duplicarProjeto}
-          onAbrirHistorico={() => setTela("historico")}
+          onAbrirHistorico={() => setAbaAtiva("gerados")}
           registrosCount={usuarioAtual.isAdmin ? registros.length : meusRegistros.length}
           nomeProfissional={perfil.nome}
           onAbrirPerfil={() => setAbaAtiva("config")}
@@ -9477,6 +9636,14 @@ function AppLaudo() {
               <p style={{ fontSize: 13, color: "#9B9A90", margin: "0 0 12px", lineHeight: 1.5 }}>
                 Conectado como <strong style={{ color: TEXTO }}>{usuario?.email}</strong>. Seus laudos ficam salvos na nuvem e aparecem em qualquer aparelho em que você entrar.
               </p>
+              <button onClick={enviarLinkNovaSenha} style={{
+                width: "100%", background: "none", color: TEXTO, marginBottom: 10,
+                border: `1.5px solid ${BORDA}`, borderRadius: 10, padding: "12px",
+                fontSize: 14, fontWeight: 700, fontFamily: "Inter, sans-serif", cursor: "pointer",
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+              }}>
+                <Key size={16} /> Alterar senha
+              </button>
               <button onClick={sairDaConta} style={{
                 width: "100%", background: "none", color: TEXTO,
                 border: `1.5px solid ${BORDA}`, borderRadius: 10, padding: "12px",
@@ -9487,51 +9654,18 @@ function AppLaudo() {
             </div>
           </ConfigCard>
 
-          {/* Laudos gerados */}
-          <ConfigSectionLabel escuro={ESCURO}>Meus Laudos Gerados ({meusRegistros.length})</ConfigSectionLabel>
+          {/* Ajuda */}
+          <ConfigSectionLabel escuro={ESCURO}>Ajuda</ConfigSectionLabel>
           <ConfigCard cardBg={CARD_BG} borda={BORDA} escuro={ESCURO}>
-            {meusRegistros.length === 0 ? (
-              <div style={{ padding: "32px 16px", textAlign: "center" }}>
-                <div style={{ marginBottom: 12, color: ESCURO ? "#3A3D4A" : "#D8D6CD" }}><Folder size={44} strokeWidth={1.2} /></div>
-                <p style={{ fontSize: 13, color: "#9B9A90", margin: 0, lineHeight: 1.5 }}>
-                  Nenhum laudo gerado ainda.<br />Gere seu primeiro laudo pela aba Laudo.
-                </p>
-              </div>
-            ) : meusRegistros.map((r, idx) => (
-              <div key={r.id} style={{
-                padding: "14px 16px",
-                borderBottom: idx < meusRegistros.length - 1 ? `1px solid ${BORDA}` : "none",
-                display: "flex", alignItems: "center", gap: 12,
-              }}>
-                <div style={{
-                  width: 40, height: 40, borderRadius: 10, flexShrink: 0,
-                  background: `${COR}18`,
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  fontSize: 18,
-                }}><File size={20} strokeWidth={1.5} /></div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ fontSize: 14, fontWeight: 600, color: TEXTO, margin: "0 0 2px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {r.empresaNome}
-                  </p>
-                  <p style={{ fontSize: 12, color: "#9B9A90", margin: 0 }}>
-                    {new Date(r.data).toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" })}
-                    {r.profissionalNome ? ` · ${(r.profissionalNome || "").split(" ")[0] || r.profissionalNome}` : ""}
-                  </p>
-                </div>
-                {r.laudoSnapshot && (
-                  <button
-                    onClick={() => reabrirRegistro(r)}
-                    style={{
-                      flexShrink: 0, background: `${COR}15`, color: COR,
-                      border: `1.5px solid ${COR}40`, borderRadius: 8,
-                      padding: "7px 12px", fontSize: 12, fontWeight: 700,
-                      cursor: "pointer", fontFamily: "Inter, sans-serif",
-                    }}>
-                    Reabrir
-                  </button>
-                )}
-              </div>
-            ))}
+            <button onClick={() => setDocLegalAberto("manual")} style={{
+              width: "100%", display: "flex", alignItems: "center", gap: 12,
+              padding: "14px 16px", background: "none", border: "none",
+              cursor: "pointer", fontFamily: "Inter, sans-serif", textAlign: "left", color: TEXTO,
+            }}>
+              <BookOpen size={17} />
+              <span style={{ flex: 1, fontSize: 14, fontWeight: 500 }}>Manual de uso</span>
+              <ChevronRight size={16} color="#9B9A90" />
+            </button>
           </ConfigCard>
 
           {/* Termos e privacidade */}
@@ -9578,7 +9712,7 @@ function AppLaudo() {
         laudo={laudo}
         onAbrirSecao={(key) => setTela(key === "cargos" ? "cargos" : key)}
         onGerarPdf={handleGerarPdf}
-        onAbrirHistorico={() => setTela("historico")}
+        onAbrirHistorico={() => setAbaAtiva("gerados")}
         onAbrirPerfil={() => setAbaAtiva("config")}
         nomeProfissional={perfil.nome}
         registrosCount={usuarioAtual.isAdmin ? registros.length : meusRegistros.length}
