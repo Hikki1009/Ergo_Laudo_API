@@ -1330,7 +1330,7 @@ function CargoForm({ initialCargo, onSave, onClose, onAlterar }) {
           background: #F7F8FA;
           font-family: 'Inter', sans-serif;
           color: #1C1F1D;
-          padding: 0 0 170px;
+          padding: 0 0 max(170px, calc(var(--espaco-rodape, 0px) + 20px));
         }
 
         .topbar {
@@ -2407,7 +2407,7 @@ function CargoForm({ initialCargo, onSave, onClose, onAlterar }) {
         </CargoForm_SectionShell>
       </div>
 
-      <div className="footer-bar">
+      <div className="footer-bar" data-rodape="">
         <button className="btn-secondary" onClick={() => {
           if (window.confirm("Limpar todos os campos deste cargo?")) setCargo(emptyCargo());
         }}>
@@ -2530,7 +2530,7 @@ function CargoList({ cargos, onAdd, onOpen, onDelete, onToggleComplete, onSeleci
           background: #F7F8FA;
           font-family: 'Inter', sans-serif;
           color: #1C1F1D;
-          padding-bottom: 40px;
+          padding-bottom: max(40px, calc(var(--espaco-rodape, 0px) + 20px));
         }
 
         .card-trash {
@@ -2854,7 +2854,7 @@ function SelecaoCargos({ onConfirmar, onVoltar, jaAdicionados = [], onRemover, s
           background: #F7F8FA;
           font-family: 'Inter', sans-serif;
           color: #1C1F1D;
-          padding-bottom: 110px;
+          padding-bottom: max(110px, calc(var(--espaco-rodape, 0px) + 20px));
         }
 
         .topbar {
@@ -3269,7 +3269,7 @@ function SelecaoCargos({ onConfirmar, onVoltar, jaAdicionados = [], onRemover, s
         </div>
       </div>
 
-      <div className="footer-bar">
+      <div className="footer-bar" data-rodape="">
         <p className="footer-count">
           {qtdSelecionadas} cargo{qtdSelecionadas === 1 ? "" : "s"} selecionado{qtdSelecionadas === 1 ? "" : "s"}
         </p>
@@ -3589,7 +3589,7 @@ function DadosGerais({ onClose, dados, onChange: setDados }) {
           background: #F7F8FA;
           font-family: 'Inter', sans-serif;
           color: #1C1F1D;
-          padding-bottom: 40px;
+          padding-bottom: max(40px, calc(var(--espaco-rodape, 0px) + 20px));
         }
 
         .topbar {
@@ -4182,7 +4182,7 @@ function DadosGerais({ onClose, dados, onChange: setDados }) {
         </DadosGerais_SectionShell>
       </div>
 
-      <div style={{ position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 640, background: "rgba(247,248,250,0.97)", backdropFilter: "blur(10px)", borderTop: "1px solid #E8E6DF", padding: "10px 16px 16px", zIndex: 50, display: "flex", gap: 10, boxSizing: "border-box" }}>
+      <div data-rodape="" style={{ position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 640, background: "rgba(247,248,250,0.97)", backdropFilter: "blur(10px)", borderTop: "1px solid #E8E6DF", padding: "10px 16px 16px", zIndex: 50, display: "flex", gap: 10, boxSizing: "border-box" }}>
         <button onClick={onClose} style={{ background: "#fff", color: "#44473F", border: "1.5px solid #E0DDD6", borderRadius: 12, padding: "15px 18px", fontSize: 15, fontWeight: 600, fontFamily: "Inter, sans-serif", cursor: "pointer" }}>
           Voltar
         </button>
@@ -4356,7 +4356,7 @@ function DadosPopulacao({ onClose, dados, onChange: setDados }) {
           background: #F7F8FA;
           font-family: 'Inter', sans-serif;
           color: #1C1F1D;
-          padding-bottom: 40px;
+          padding-bottom: max(40px, calc(var(--espaco-rodape, 0px) + 20px));
         }
 
         .topbar {
@@ -4746,7 +4746,7 @@ function DadosPopulacao({ onClose, dados, onChange: setDados }) {
         </DadosPopulacao_SectionShell>
       </div>
 
-      <div style={{ position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 640, background: "rgba(247,248,250,0.97)", backdropFilter: "blur(10px)", borderTop: "1px solid #E8E6DF", padding: "10px 16px 16px", zIndex: 50, display: "flex", gap: 10, boxSizing: "border-box" }}>
+      <div data-rodape="" style={{ position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 640, background: "rgba(247,248,250,0.97)", backdropFilter: "blur(10px)", borderTop: "1px solid #E8E6DF", padding: "10px 16px 16px", zIndex: 50, display: "flex", gap: 10, boxSizing: "border-box" }}>
         <button onClick={onClose} style={{ background: "#fff", color: "#44473F", border: "1.5px solid #E0DDD6", borderRadius: 12, padding: "15px 18px", fontSize: 15, fontWeight: 600, fontFamily: "Inter, sans-serif", cursor: "pointer" }}>
           Voltar
         </button>
@@ -5005,7 +5005,7 @@ function PlanoAcao({ onClose, dados, onChange: setDados, cargos = [] }) {
           background: #F7F8FA;
           font-family: 'Inter', sans-serif;
           color: #1C1F1D;
-          padding-bottom: 40px;
+          padding-bottom: max(40px, calc(var(--espaco-rodape, 0px) + 20px));
         }
 
         .topbar {
@@ -5497,7 +5497,7 @@ function PlanoAcao({ onClose, dados, onChange: setDados, cargos = [] }) {
         </PlanoAcao_SectionShell>
       </div>
 
-      <div style={{ position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 640, background: "rgba(247,248,250,0.97)", backdropFilter: "blur(10px)", borderTop: "1px solid #E8E6DF", padding: "10px 16px 16px", zIndex: 50, display: "flex", gap: 10, boxSizing: "border-box" }}>
+      <div data-rodape="" style={{ position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 640, background: "rgba(247,248,250,0.97)", backdropFilter: "blur(10px)", borderTop: "1px solid #E8E6DF", padding: "10px 16px 16px", zIndex: 50, display: "flex", gap: 10, boxSizing: "border-box" }}>
         <button onClick={onClose} style={{ background: "#fff", color: "#44473F", border: "1.5px solid #E0DDD6", borderRadius: 12, padding: "15px 18px", fontSize: 15, fontWeight: 600, fontFamily: "Inter, sans-serif", cursor: "pointer" }}>
           Voltar
         </button>
@@ -5695,7 +5695,7 @@ function Anexos({ onClose, dados, onChange }) {
           background: #F7F8FA;
           font-family: 'Inter', sans-serif;
           color: #1C1F1D;
-          padding-bottom: 40px;
+          padding-bottom: max(40px, calc(var(--espaco-rodape, 0px) + 20px));
         }
 
         .topbar {
@@ -6095,7 +6095,7 @@ function Anexos({ onClose, dados, onChange }) {
         </Anexos_SectionShell>
       </div>
 
-      <div style={{ position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 640, background: "rgba(247,248,250,0.97)", backdropFilter: "blur(10px)", borderTop: "1px solid #E8E6DF", padding: "10px 16px 16px", zIndex: 50, display: "flex", gap: 10, boxSizing: "border-box" }}>
+      <div data-rodape="" style={{ position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 640, background: "rgba(247,248,250,0.97)", backdropFilter: "blur(10px)", borderTop: "1px solid #E8E6DF", padding: "10px 16px 16px", zIndex: 50, display: "flex", gap: 10, boxSizing: "border-box" }}>
         <button onClick={onClose} style={{ background: "#fff", color: "#44473F", border: "1.5px solid #E0DDD6", borderRadius: 12, padding: "15px 18px", fontSize: 15, fontWeight: 600, fontFamily: "Inter, sans-serif", cursor: "pointer" }}>
           Voltar
         </button>
@@ -6178,7 +6178,7 @@ function MenuPrincipal({ laudo, onAbrirSecao, onGerarPdf, onAbrirHistorico, regi
           background: #F7F8FA;
           font-family: 'Inter', sans-serif;
           color: #1C1F1D;
-          padding-bottom: 160px;
+          padding-bottom: max(160px, calc(var(--espaco-rodape, 0px) + 20px));
         }
 
         .topbar {
@@ -6433,7 +6433,7 @@ function MenuPrincipal({ laudo, onAbrirSecao, onGerarPdf, onAbrirHistorico, regi
         })}
       </div>
 
-      <div className="footer-bar" style={{ background: escuroTema ? "rgba(28,32,48,0.97)" : "rgba(247,248,250,0.97)" }}>
+      <div className="footer-bar" data-rodape="" style={{ background: escuroTema ? "rgba(28,32,48,0.97)" : "rgba(247,248,250,0.97)" }}>
         <div style={{ display: "flex", gap: 10 }}>
           <button onClick={onSalvarESair} style={{
             flexShrink: 0, background: escuroTema ? "#1C2030" : "#fff", color: escuroTema ? "#F0EEE6" : "#0A2647",
@@ -6687,7 +6687,7 @@ function Historico({ onClose, registros = [], isAdmin = false, emAba = false, on
   const pagos = (registros || []).filter((r) => r.pago);
 
   return (
-    <div className="page" style={emAba ? { paddingBottom: "calc(140px + env(safe-area-inset-bottom, 0px))" } : undefined}>
+    <div className="page" style={emAba ? { paddingBottom: "max(calc(140px + env(safe-area-inset-bottom, 0px)), calc(var(--espaco-rodape, 0px) + 20px))" } : undefined}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap');
 
@@ -6698,7 +6698,7 @@ function Historico({ onClose, registros = [], isAdmin = false, emAba = false, on
           background: #F7F8FA;
           font-family: 'Inter', sans-serif;
           color: #1C1F1D;
-          padding-bottom: 40px;
+          padding-bottom: max(40px, calc(var(--espaco-rodape, 0px) + 20px));
         }
 
         .topbar {
@@ -9149,7 +9149,7 @@ function TelaProjetos({
   );
 
   return (
-    <div style={{ minHeight: "100vh", background: fundo, fontFamily: "Inter, sans-serif", color: texto, paddingBottom: 110 }}>
+    <div style={{ minHeight: "100vh", background: fundo, fontFamily: "Inter, sans-serif", color: texto, paddingBottom: "max(110px, calc(var(--espaco-rodape, 0px) + 20px))" }}>
       <div style={{ background: cor, color: "#F7F8FA", padding: "22px 20px 24px" }}>
         <div style={{ maxWidth: 640, margin: "0 auto" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
@@ -9250,6 +9250,53 @@ function ConfigCard({ cardBg, borda, escuro, style = {}, children }) {
   );
 }
 
+// ---------- Espaço no fim das telas ----------
+// As barras fixas do rodapé (abas e botões) mudam de altura conforme o tamanho
+// da letra do aparelho. Mede a altura real delas e guarda em --espaco-rodape,
+// que as telas usam como espaço mínimo no fim da página.
+function useEspacoRodape() {
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    let quadro = 0;
+    let ultimo = -1;
+    const observadas = new Set();
+    const tamanho = typeof ResizeObserver !== "undefined" ? new ResizeObserver(() => agendar()) : null;
+    function medir() {
+      quadro = 0;
+      const alturaTela = window.innerHeight || document.documentElement.clientHeight || 0;
+      let espaco = 0;
+      document.querySelectorAll("[data-rodape]").forEach((el) => {
+        if (tamanho && !observadas.has(el)) { observadas.add(el); tamanho.observe(el); }
+        const q = el.getBoundingClientRect();
+        // Barras na parte de baixo da tela (inclui a que fica logo acima das abas)
+        if (q.height > 0 && q.top >= alturaTela * 0.35 && q.top < alturaTela) espaco = Math.max(espaco, alturaTela - q.top);
+      });
+      espaco = Math.max(0, Math.ceil(espaco));
+      if (espaco !== ultimo) {
+        ultimo = espaco;
+        document.documentElement.style.setProperty("--espaco-rodape", espaco + "px");
+      }
+    }
+    function agendar() {
+      if (!quadro) quadro = window.requestAnimationFrame(medir);
+    }
+    const mudancas = typeof MutationObserver !== "undefined" ? new MutationObserver(agendar) : null;
+    if (mudancas) mudancas.observe(document.body, { childList: true, subtree: true });
+    window.addEventListener("resize", agendar);
+    window.addEventListener("orientationchange", agendar);
+    window.visualViewport?.addEventListener("resize", agendar);
+    medir();
+    return () => {
+      if (quadro) window.cancelAnimationFrame(quadro);
+      mudancas?.disconnect();
+      tamanho?.disconnect();
+      window.removeEventListener("resize", agendar);
+      window.removeEventListener("orientationchange", agendar);
+      window.visualViewport?.removeEventListener("resize", agendar);
+    };
+  }, []);
+}
+
 function AppLaudo() {
   const [showSplash, setShowSplash] = useState(true);
   const [usuario, setUsuario] = useState(undefined); // undefined = verificando | null = sem login
@@ -9273,6 +9320,7 @@ function AppLaudo() {
   const [docLegalAberto, setDocLegalAberto] = useState(null); // "termos" | "privacidade" | null
   const avisouErroNuvem = useRef(false);
   const uid = usuario?.uid;
+  useEspacoRodape();
 
   // ---------- Login ----------
   useEffect(() => {
@@ -10080,7 +10128,7 @@ function AppLaudo() {
   ];
 
   const NavBar = () => (
-    <div style={{
+    <div data-rodape="" style={{
       position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)",
       width: "100%", maxWidth: 640,
       background: CARD_BG, borderTop: `1px solid ${BORDA}`,
@@ -10173,7 +10221,7 @@ function AppLaudo() {
       : "?";
 
     return (
-      <div style={{ minHeight: "100vh", background: BG, fontFamily: "Inter, sans-serif", color: TEXTO, paddingBottom: 90 }}>
+      <div style={{ minHeight: "100vh", background: BG, fontFamily: "Inter, sans-serif", color: TEXTO, paddingBottom: "max(90px, calc(var(--espaco-rodape, 0px) + 20px))" }}>
 
         {/* Hero — avatar + nome */}
         <div style={{
