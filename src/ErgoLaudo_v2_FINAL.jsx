@@ -301,12 +301,45 @@ function resumoProjeto(id, dados) {
 // Projetos já excluídos: um salvamento automático atrasado não pode recriá-los
 const projetosExcluidos = new Set();
 
+// ---------- Atualização do app sem prejudicar quem está usando ----------
+// Quando uma versão nova é publicada, quem está com o app aberto continua na
+// versão antiga até recarregar. O app percebe a versão nova e se atualiza sozinho
+// num momento seguro (app em segundo plano ou parado), depois de salvar o projeto,
+// e volta para a mesma tela.
+const PADRAO_SCRIPT_PRINCIPAL = /\/static\/js\/main\.[a-z0-9]+\.js/i;
+
+function scriptPrincipalAtual() {
+  const s = Array.from(document.scripts || []).map((el) => el.getAttribute("src") || "").find((src) => PADRAO_SCRIPT_PRINCIPAL.test(src));
+  return s ? s.match(PADRAO_SCRIPT_PRINCIPAL)[0] : null;
+}
+
+async function existeVersaoNova() {
+  const atual = scriptPrincipalAtual();
+  if (!atual) return false; // ambiente de teste/desenvolvimento
+  try {
+    const resp = await fetch(`/index.html?v=${Date.now()}`, { cache: "no-store" });
+    if (!resp.ok) return false;
+    const publicado = (await resp.text()).match(PADRAO_SCRIPT_PRINCIPAL);
+    return !!publicado && publicado[0] !== atual;
+  } catch {
+    return false; // sem internet: tenta de novo depois
+  }
+}
+
+// Onde o usuário estava antes da atualização automática (para voltar ao mesmo lugar)
+const CHAVE_RETOMAR = "ergolaudo-retomar-apos-atualizar";
+
+// Identifica esta tela aberta: serve para saber se o projeto foi salvo por outro aparelho/aba
+const SESSAO_ID = (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID() : String(Math.random()).slice(2);
+
 async function salvarLaudoNaNuvem(uid, projetoId, laudo) {
-  if (!uid || !projetoId || projetosExcluidos.has(projetoId)) return;
+  if (!uid || !projetoId || projetosExcluidos.has(projetoId)) return null;
   const { dados, envios } = await prepararLaudoParaNuvem(uid, laudo);
-  if (projetosExcluidos.has(projetoId)) return;
-  envios.push(setDoc(refProjeto(uid, projetoId), { laudo: dados, atualizadoEm: Date.now() }, { merge: true }));
+  if (projetosExcluidos.has(projetoId)) return null;
+  const agora = Date.now();
+  envios.push(setDoc(refProjeto(uid, projetoId), { laudo: dados, atualizadoEm: agora, salvoPor: SESSAO_ID }, { merge: true }));
   await aguardarGravacao(envios);
+  return agora;
 }
 
 // ── Hook de salvamento com feedback ──────────────────────────────────────────
@@ -852,6 +885,15 @@ const emptyCargo = () => ({
   dataApresentacaoResultados: "",
   observacoesParticipacao: "",
 });
+
+// Cargos em ordem alfabética (no app e no PDF); cargo sem nome vai para o fim
+function ordenarCargos(lista) {
+  return [...(lista || [])].sort((a, b) => {
+    const na = (a?.nome || "").trim(), nb = (b?.nome || "").trim();
+    if (!na || !nb) return na ? -1 : nb ? 1 : 0;
+    return na.localeCompare(nb, "pt-BR", { sensitivity: "base", numeric: true });
+  });
+}
 
 // O cargo já tem alguma informação preenchida?
 function cargoTemDados(c) {
@@ -2698,7 +2740,7 @@ function CargoList({ cargos, onAdd, onOpen, onDelete, onToggleComplete, onSeleci
         {(cargos?.length || 0) > 0 ? (
           <>
             <div className="list">
-              {(cargos || []).map((cargo) => (
+              {ordenarCargos(cargos).map((cargo) => (
                 <CargoCard
                   key={cargo.id}
                   cargo={cargo}
@@ -7439,7 +7481,7 @@ function montarDocumentoPdf(laudoBruto, opcoes = {}) {
   const dg = laudo.dadosGerais;
   const emp = dg.empresa, ctr = dg.contrato, resp = dg.responsavel, capa = dg.capa, textos = dg.textos;
   const pop = laudo.populacao;
-  const cargos = (laudo.cargos || []).filter((c) => c && (temTexto(c.nome) || c.condicoes));
+  const cargos = ordenarCargos((laudo.cargos || []).filter((c) => c && (temTexto(c.nome) || c.condicoes)));
   const dataEmissao = opcoes.dataEmissao || hojeBr();
   const ano = dataEmissao.slice(-4);
   const localServicos = txt(emp.enderecoLocal); // "Local dos serviços" (sem trocar pelo endereço da empresa)
@@ -9323,16 +9365,191 @@ function AppLaudo() {
     return () => { cancelado = true; };
   }, [usuario, tentativaCarga]);
 
+  // ---------- Proteção: o mesmo projeto aberto em dois aparelhos/abas ----------
+  // versaoConhecida = data da última versão que esta tela carregou ou salvou.
+  // Se a nuvem tiver uma versão mais nova, salva por OUTRA tela, este aparelho
+  // não grava por cima (senão apagaria o que foi feito lá).
+  const versaoConhecida = useRef(0);
+  const alteradoLocal = useRef(false);   // há alterações desta tela ainda não salvas
+  const ignorarMudanca = useRef(false);  // a próxima mudança do laudo veio de um carregamento
+  const resolvendoConflito = useRef(false);
+
+  const marcarCarregado = (versao) => {
+    versaoConhecida.current = Number(versao) || 0;
+    alteradoLocal.current = false;
+    ignorarMudanca.current = true;
+  };
+
+  // Lê a versão do projeto na nuvem; devolve null se não for possível (sem internet etc.)
+  const lerVersaoRemota = async (id) => {
+    try {
+      const snap = await getDoc(refProjeto(uid, id));
+      return snap.exists() ? snap.data() : null;
+    } catch {
+      return null;
+    }
+  };
+  const ehVersaoDeOutraTela = (remoto) =>
+    !!remoto && remoto.salvoPor !== SESSAO_ID && (Number(remoto.atualizadoEm) || 0) > versaoConhecida.current;
+
+  // Troca o que está na tela pela versão mais nova da nuvem
+  const carregarVersaoRemota = async (id, remoto) => {
+    const restaurado = await restaurarImagens(remoto?.laudo || {}, uid);
+    marcarCarregado(remoto?.atualizadoEm);
+    setLaudo(normalizarLaudo(restaurado));
+    atualizarResumo(id, restaurado);
+  };
+
+  // Pergunta o que fazer quando a nuvem tem uma versão mais nova feita em outra tela.
+  // Devolve true se esta tela pode salvar a versão dela por cima.
+  const resolverConflito = async (id, remoto) => {
+    if (resolvendoConflito.current) return false;
+    resolvendoConflito.current = true;
+    try {
+      const quando = remoto?.atualizadoEm ? new Date(Number(remoto.atualizadoEm)).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "";
+      if (window.confirm(`Este projeto foi alterado em outro aparelho ou em outra aba${quando ? ` (${quando})` : ""}.\n\nToque em OK para carregar a versão mais recente (recomendado). O que foi feito lá fica preservado; só as alterações dos últimos segundos nesta tela são descartadas.`)) {
+        await carregarVersaoRemota(id, remoto);
+        mostrarAviso("Projeto atualizado com a versão mais recente.");
+        return false;
+      }
+      if (window.confirm("Manter a versão DESTE aparelho? Isso apaga o que foi feito no outro aparelho.")) {
+        versaoConhecida.current = Number(remoto?.atualizadoEm) || Date.now();
+        return true;
+      }
+      return false;
+    } finally {
+      resolvendoConflito.current = false;
+    }
+  };
+
+  // Salva o projeto aberto, a menos que exista uma versão mais nova feita em outra tela
+  const salvarComVerificacao = async (id, dadosLaudo) => {
+    if (!id) return;
+    const remoto = await lerVersaoRemota(id);
+    if (ehVersaoDeOutraTela(remoto)) {
+      const podeSalvar = await resolverConflito(id, remoto);
+      if (!podeSalvar) throw Object.assign(new Error("O projeto foi alterado em outro aparelho"), { code: "conflito" });
+    }
+    const versao = await salvarLaudoNaNuvem(uid, id, dadosLaudo);
+    if (versao) versaoConhecida.current = versao;
+    alteradoLocal.current = false;
+  };
+
+  // ---------- Atualização automática do app ----------
+  const estadoAtual = useRef({});
+  estadoAtual.current = { uid, projetoAtualId, laudo, tela, cargoAbertoId, abaAtiva };
+  const atualizando = useRef(false);
+
+  // Salva o que estiver pendente, guarda onde o usuário estava e recarrega.
+  // Se houver conflito com outro aparelho, não atualiza agora (o usuário decide antes).
+  const atualizarAppAgora = useRef(null);
+  atualizarAppAgora.current = async () => {
+    if (atualizando.current || resolvendoConflito.current) return;
+    atualizando.current = true;
+    try {
+      const { uid: u, projetoAtualId: id, laudo: l, tela: t, cargoAbertoId: c, abaAtiva: a } = estadoAtual.current;
+      if (u && id && alteradoLocal.current) {
+        const remoto = await lerVersaoRemota(id);
+        if (ehVersaoDeOutraTela(remoto)) return;
+        const versao = await salvarLaudoNaNuvem(u, id, l);
+        if (versao) versaoConhecida.current = versao;
+        alteradoLocal.current = false;
+      }
+      try {
+        sessionStorage.setItem(CHAVE_RETOMAR, JSON.stringify({ projetoId: id || null, tela: t, cargoAbertoId: c || null, aba: a, em: Date.now() }));
+      } catch { /* sem armazenamento: volta para a lista de projetos */ }
+      window.location.reload();
+    } catch {
+      // não conseguiu salvar (ex.: sem internet): tenta de novo mais tarde
+    } finally {
+      atualizando.current = false;
+    }
+  };
+
+  useEffect(() => {
+    let versaoNova = false;
+    let ultimaInteracao = Date.now();
+    const marcarInteracao = () => { ultimaInteracao = Date.now(); };
+    const eventos = ["pointerdown", "keydown", "touchstart", "input", "scroll"];
+    eventos.forEach((ev) => window.addEventListener(ev, marcarInteracao, { passive: true, capture: true }));
+
+    const verificar = async () => {
+      if (!versaoNova) versaoNova = await existeVersaoNova();
+      if (!versaoNova) return;
+      const parado = Date.now() - ultimaInteracao;
+      const comProjeto = !!estadoAtual.current.projetoAtualId;
+      // Momento seguro: app em segundo plano, ou parado (30 s na lista; 3 min com projeto aberto)
+      if (document.visibilityState === "hidden" || parado >= (comProjeto ? 180000 : 30000)) {
+        atualizarAppAgora.current?.();
+      }
+    };
+    const aoMudarVisibilidade = () => { verificar(); };
+    document.addEventListener("visibilitychange", aoMudarVisibilidade);
+    const intervaloBusca = setInterval(verificar, 60 * 1000);
+    const primeira = setTimeout(verificar, 15000);
+    return () => {
+      eventos.forEach((ev) => window.removeEventListener(ev, marcarInteracao, { capture: true }));
+      document.removeEventListener("visibilitychange", aoMudarVisibilidade);
+      clearInterval(intervaloBusca);
+      clearTimeout(primeira);
+    };
+  }, []);
+
+  // Depois da atualização automática, volta para o projeto e a tela em que o usuário estava
+  useEffect(() => {
+    if (!dadosProntos) return;
+    let retomar = null;
+    try {
+      retomar = JSON.parse(sessionStorage.getItem(CHAVE_RETOMAR) || "null");
+      sessionStorage.removeItem(CHAVE_RETOMAR);
+    } catch { retomar = null; }
+    if (!retomar || Date.now() - (retomar.em || 0) > 15 * 60 * 1000) return;
+    (async () => {
+      const telasSeguras = ["menu", "dadosGerais", "populacao", "planoAcao", "anexos", "cargos", "selecaoCargos", "cargoForm"];
+      if (retomar.projetoId && projetos.some((pj) => pj.id === retomar.projetoId)) {
+        await abrirProjeto(retomar.projetoId);
+        if (retomar.tela === "cargoForm" && retomar.cargoAbertoId) setCargoAbertoId(retomar.cargoAbertoId);
+        if (telasSeguras.includes(retomar.tela)) setTela(retomar.tela);
+      }
+      if (["laudo", "gerados", "config"].includes(retomar.aba)) setAbaAtiva(retomar.aba);
+      mostrarAviso("ErgoLaudo atualizado para a versão mais recente.");
+    })();
+  }, [dadosProntos]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Ao voltar para o app (trocou de aba/aparelho), busca a versão mais nova se esta tela não tem nada pendente
+  useEffect(() => {
+    if (!uid || !projetoAtualId) return undefined;
+    const aoVoltar = async () => {
+      if (document.visibilityState !== "visible" || alteradoLocal.current || resolvendoConflito.current) return;
+      const id = projetoAtualId;
+      const remoto = await lerVersaoRemota(id);
+      if (ehVersaoDeOutraTela(remoto) && !alteradoLocal.current) {
+        await carregarVersaoRemota(id, remoto);
+        mostrarAviso("Este projeto foi atualizado com as alterações feitas em outro aparelho.");
+      }
+    };
+    document.addEventListener("visibilitychange", aoVoltar);
+    window.addEventListener("focus", aoVoltar);
+    return () => {
+      document.removeEventListener("visibilitychange", aoVoltar);
+      window.removeEventListener("focus", aoVoltar);
+    };
+  }, [uid, projetoAtualId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ---------- Salvamento automático do projeto aberto (1,5 s após a última alteração) ----------
   useEffect(() => {
     if (!uid || !dadosProntos || !projetoAtualId) return undefined;
+    if (ignorarMudanca.current) { ignorarMudanca.current = false; return undefined; }
+    alteradoLocal.current = true;
+    const id = projetoAtualId;
     const t = setTimeout(() => {
-      salvarLaudoNaNuvem(uid, projetoAtualId, laudo)
+      salvarComVerificacao(id, laudo)
         .then(() => {
           avisouErroNuvem.current = false;
-          atualizarResumo(projetoAtualId, laudo);
+          atualizarResumo(id, laudo);
         })
         .catch((erro) => {
+          if (erro?.code === "conflito") return; // o aviso de conflito já aparece na tela
           if (!avisouErroNuvem.current) {
             avisouErroNuvem.current = true;
             alert("Não foi possível salvar o laudo na nuvem: " + mensagemErroFirebase(erro));
@@ -9340,10 +9557,10 @@ function AppLaudo() {
         });
     }, 1500);
     return () => clearTimeout(t);
-  }, [laudo, uid, dadosProntos, projetoAtualId]);
+  }, [laudo, uid, dadosProntos, projetoAtualId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Usado pelos botões "Salvar" de cada seção
-  salvamentoAtual.salvar = uid && projetoAtualId ? () => salvarLaudoNaNuvem(uid, projetoAtualId, laudo) : null;
+  salvamentoAtual.salvar = uid && projetoAtualId ? () => salvarComVerificacao(projetoAtualId, laudo) : null;
 
   // ---------- Projetos ----------
   const mostrarAviso = (texto) => {
@@ -9369,11 +9586,12 @@ function AppLaudo() {
       const { dados, envios } = dadosProntosParaNuvem
         ? { dados: dadosProntosParaNuvem, envios: [] }
         : await prepararLaudoParaNuvem(uid, laudoInicial);
-      const conteudo = { nome, status: "andamento", criadoEm: agora, atualizadoEm: agora, laudo: dados };
+      const conteudo = { nome, status: "andamento", criadoEm: agora, atualizadoEm: agora, salvoPor: SESSAO_ID, laudo: dados };
       envios.push(setDoc(ref, conteudo));
       await aguardarGravacao(envios);
       setProjetos((lista) => [resumoProjeto(ref.id, conteudo), ...lista]);
       setAviso("");
+      marcarCarregado(agora);
       setLaudo(normalizarLaudo(laudoInicial));
       setProjetoAtualId(ref.id);
       setAbaAtiva("laudo");
@@ -9390,6 +9608,7 @@ function AppLaudo() {
       const snap = await getDoc(refProjeto(uid, id));
       if (!snap.exists()) throw Object.assign(new Error("não encontrado"), { code: "not-found" });
       const restaurado = await restaurarImagens(snap.data().laudo, uid);
+      marcarCarregado(snap.data().atualizadoEm);
       setLaudo(normalizarLaudo(restaurado));
       setProjetoAtualId(id);
       setTela("menu");
@@ -9404,12 +9623,12 @@ function AppLaudo() {
   const salvarESair = async () => {
     const id = projetoAtualId;
     try {
-      await salvarLaudoNaNuvem(uid, id, laudo);
+      await salvarComVerificacao(id, laudo);
       atualizarResumo(id, laudo);
       const nome = projetos.find((pj) => pj.id === id)?.nome || "Projeto";
       mostrarAviso(`"${nome}" foi salvo. Você pode continuar de onde parou quando quiser.`);
     } catch (erro) {
-      alert("Não foi possível salvar o projeto: " + mensagemErroFirebase(erro));
+      if (erro?.code !== "conflito") alert("Não foi possível salvar o projeto: " + mensagemErroFirebase(erro));
       return; // fica no projeto para não perder nada
     }
     setProjetoAtualId(null);
@@ -9420,7 +9639,7 @@ function AppLaudo() {
   // Cria uma cópia completa (dados, cargos, fotos) para usar como base de outro laudo
   const duplicarProjeto = async (id, nome) => {
     try {
-      if (id === projetoAtualId) await salvarLaudoNaNuvem(uid, id, laudo);
+      if (id === projetoAtualId) await salvarComVerificacao(id, laudo);
       const snap = await getDoc(refProjeto(uid, id));
       if (!snap.exists()) throw Object.assign(new Error("não encontrado"), { code: "not-found" });
       const ref = doc(collection(db, "users", uid, "laudos"));
@@ -9501,8 +9720,9 @@ function AppLaudo() {
   const sairDaConta = async () => {
     if (!window.confirm("Sair da conta neste aparelho?")) return;
     try {
-      if (projetoAtualId) await salvarLaudoNaNuvem(uid, projetoAtualId, laudo);
-    } catch {}
+      // Não grava por cima de uma versão mais nova feita em outro aparelho
+      if (projetoAtualId) await salvarComVerificacao(projetoAtualId, laudo);
+    } catch { /* sai mesmo assim; o que está na nuvem fica preservado */ }
     await signOut(auth);
     setShowSplash(false); // depois de sair, vai direto para a tela de entrar
     cacheImagens.clear();
@@ -9679,7 +9899,15 @@ function AppLaudo() {
   // ---------- PDF export ----------
   // O PDF é montado no aparelho (baixarPdfLaudo) e depois o laudo é registrado no histórico.
 
-  const handleGerarPdf = () => setMostrarModalGeracao(true);
+  const handleGerarPdf = async () => {
+    const remoto = projetoAtualId ? await lerVersaoRemota(projetoAtualId) : null;
+    if (ehVersaoDeOutraTela(remoto)) {
+      const podeSeguir = await resolverConflito(projetoAtualId, remoto);
+      if (!podeSeguir) return; // carregou a versão mais nova: o usuário confere e gera de novo
+      try { await salvarComVerificacao(projetoAtualId, laudo); } catch { return; }
+    }
+    setMostrarModalGeracao(true);
+  };
 
   const handleConfirmarGeracao = async (valorCobrado, manterInformacoes) => {
     const id = projetoAtualId;
@@ -9688,7 +9916,7 @@ function AppLaudo() {
     } catch (erro) {
       if (erro?.code === "app-atualizado") {
         if (window.confirm("Não foi possível carregar o gerador de PDF. Isso acontece quando o ErgoLaudo foi atualizado ou a internet caiu. Recarregar o app agora? Suas informações ficam salvas.")) {
-          try { await salvarLaudoNaNuvem(uid, id, laudo); } catch { /* recarrega mesmo assim */ }
+          try { await salvarComVerificacao(id, laudo); } catch { /* recarrega mesmo assim */ }
           window.location.reload();
         }
         return;
@@ -9714,7 +9942,9 @@ function AppLaudo() {
       envios.push(setDoc(ref, novoRegistro));
       if (manterInformacoes) {
         // Sim: o projeto continua salvo para correções
-        envios.push(setDoc(refProjeto(uid, id), { laudo: dados, status: "gerado", geradoEm: agora.getTime(), atualizadoEm: agora.getTime() }, { merge: true }));
+        envios.push(setDoc(refProjeto(uid, id), { laudo: dados, status: "gerado", geradoEm: agora.getTime(), atualizadoEm: agora.getTime(), salvoPor: SESSAO_ID }, { merge: true }));
+        versaoConhecida.current = agora.getTime();
+        alteradoLocal.current = false;
       }
       await aguardarGravacao(envios);
       setRegistros((lista) => [{ ...novoRegistro, id: ref.id }, ...lista]);
@@ -9806,7 +10036,7 @@ function AppLaudo() {
           const alvo = (laudo.cargos || []).find((c) => c.nome === nome);
           if (alvo) handleExcluirCargo(alvo.id);
         }}
-        cargosNoLaudo={(laudo.cargos || []).map((c) => ({ id: c.id, nome: c.nome }))}
+        cargosNoLaudo={ordenarCargos(laudo.cargos).map((c) => ({ id: c.id, nome: c.nome }))}
         onRemoverCargo={handleExcluirCargo}
         salvas={perfil.cargosPersonalizados}
         onAlterarSalvas={alterarCargosSalvos}
