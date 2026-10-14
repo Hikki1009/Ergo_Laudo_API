@@ -426,10 +426,31 @@ function validarPopulacao(dados) {
   return faltando;
 }
 
+// Ação que entra no PDF: precisa de "O quê" ou "Por quê"
+function acaoTemConteudo(a) {
+  return !!((a?.oQue || "").trim() || (a?.porQue || "").trim());
+}
+
+// Resumo do risco de origem, para saber se o risco mudou depois de criar a ação
+function assinaturaRisco(r) {
+  return `${(r.fator || "").trim()}|${r.ir}|${r.cargoNome}`;
+}
+
+// Textos que a ação recebe a partir do risco do FMEA
+function dadosAcaoDoRisco(r) {
+  return {
+    prioridade: r.cls.prioridade,
+    origemRisco: r.id,
+    origemResumo: assinaturaRisco(r),
+    porQue: `${r.fator}${r.efeito ? ` — risco de ${r.efeito}` : ""} (IR ${r.ir}: ${r.cls.classe})`,
+    onde: r.cargoNome,
+  };
+}
+
 function validarPlanoAcao(dados) {
   if (!dados) return ["Dados de plano de ação não carregados"];
   const faltando = [];
-  if (!dados.acoes?.length) faltando.push("Pelo menos uma ação no plano");
+  if (!(dados.acoes || []).some(acaoTemConteudo)) faltando.push("Pelo menos uma ação com \"O quê\" ou \"Por quê\" preenchido");
   if (!dados.consideracoes?.trim()) faltando.push("Considerações finais");
   return faltando;
 }
@@ -563,25 +584,37 @@ function nivelAcaoRula(pontuacao) {
 }
 
 // Calcula o grupo A (braço, antebraço, punho) de um lado
+// Valor de marcação do RULA: número inteiro dentro da faixa, senão "não marcado"
+function notaRula(v, max) {
+  const n = Number(v);
+  return Number.isInteger(n) && n >= 1 && n <= max ? n : null;
+}
+function forcaRula(v) {
+  const n = Number(v);
+  return Number.isInteger(n) && n >= 0 && n <= 3 ? n : 0;
+}
+
 function calcularRulaLado(lado) {
-  if (!lado?.braco || !lado.antebraco || !lado.punho || !lado.torcao) return null;
-  const braco = limitar(lado.braco + (lado.bracoElevado ? 1 : 0) + (lado.bracoAbduzido ? 1 : 0) - (lado.bracoApoiado ? 1 : 0), 1, 6);
-  const antebraco = limitar(lado.antebraco + (lado.antebracoLinhaMedia ? 1 : 0), 1, 3);
-  const punho = limitar(lado.punho + (lado.punhoDesvio ? 1 : 0), 1, 4);
-  const torcao = limitar(lado.torcao, 1, 2);
+  const b0 = notaRula(lado?.braco, 4), a0 = notaRula(lado?.antebraco, 2), p0 = notaRula(lado?.punho, 3), t0 = notaRula(lado?.torcao, 2);
+  if (!b0 || !a0 || !p0 || !t0) return null;
+  const braco = limitar(b0 + (lado.bracoElevado ? 1 : 0) + (lado.bracoAbduzido ? 1 : 0) - (lado.bracoApoiado ? 1 : 0), 1, 6);
+  const antebraco = limitar(a0 + (lado.antebracoLinhaMedia ? 1 : 0), 1, 3);
+  const punho = limitar(p0 + (lado.punhoDesvio ? 1 : 0), 1, 4);
+  const torcao = t0;
   const posturaA = RULA_TABELA_A[braco - 1][antebraco - 1][(punho - 1) * 2 + (torcao - 1)];
-  const pontuacaoC = posturaA + (lado.musculo ? 1 : 0) + (Number(lado.forca) || 0);
+  const pontuacaoC = posturaA + (lado.musculo ? 1 : 0) + forcaRula(lado.forca);
   return { braco, antebraco, punho, torcao, posturaA, pontuacaoC };
 }
 
 // Calcula o grupo B (pescoço, tronco, pernas), comum aos dois lados
 function calcularRulaB(calc) {
-  if (!calc?.pescoco || !calc.tronco || !calc.pernas) return null;
-  const pescoco = limitar(calc.pescoco + (calc.pescocoRotacao ? 1 : 0) + (calc.pescocoLateral ? 1 : 0), 1, 6);
-  const tronco = limitar(calc.tronco + (calc.troncoRotacao ? 1 : 0) + (calc.troncoLateral ? 1 : 0), 1, 6);
-  const pernas = limitar(calc.pernas, 1, 2);
+  const pe0 = notaRula(calc?.pescoco, 4), tr0 = notaRula(calc?.tronco, 4), pn0 = notaRula(calc?.pernas, 2);
+  if (!pe0 || !tr0 || !pn0) return null;
+  const pescoco = limitar(pe0 + (calc.pescocoRotacao ? 1 : 0) + (calc.pescocoLateral ? 1 : 0), 1, 6);
+  const tronco = limitar(tr0 + (calc.troncoRotacao ? 1 : 0) + (calc.troncoLateral ? 1 : 0), 1, 6);
+  const pernas = pn0;
   const posturaB = RULA_TABELA_B[pescoco - 1][(tronco - 1) * 2 + (pernas - 1)];
-  const pontuacaoD = posturaB + (calc.musculoB ? 1 : 0) + (Number(calc.forcaB) || 0);
+  const pontuacaoD = posturaB + (calc.musculoB ? 1 : 0) + forcaRula(calc.forcaB);
   return { pescoco, tronco, pernas, posturaB, pontuacaoD };
 }
 
@@ -635,7 +668,8 @@ function classificarRisco(ir) {
 }
 
 function indiceRisco(linha) {
-  const o = Number(linha?.o), s = Number(linha?.s), c = Number(linha?.c);
+  const v = (x) => { const n = Number(x); return Number.isInteger(n) && n >= 1 && n <= 3 ? n : 0; };
+  const o = v(linha?.o), s = v(linha?.s), c = v(linha?.c);
   return o && s && c ? o * s * c : null;
 }
 
@@ -681,7 +715,8 @@ function validadeEhAutomatica(capa) {
 function recalcularValidade(capa) {
   const base = brParaIso(capa.dataFimColeta) ? capa.dataFimColeta : capa.dataInicioColeta;
   const nova = somarAnos(base, prazoValidade(capa));
-  return { ...capa, validadeAutomatica: true, dataValidade: nova || capa.dataValidade };
+  // Sem data de coleta, a validade automática fica vazia (não guarda a data antiga)
+  return { ...capa, validadeAutomatica: true, dataValidade: nova };
 }
 
 function CampoData({ label, value, onChange, hint, id }) {
@@ -694,7 +729,13 @@ function CampoData({ label, value, onChange, hint, id }) {
         onChange={(e) => onChange(isoParaBr(e.target.value))}
         style={{ minHeight: 44 }} />
       {textoAntigo && (
-        <span className="field-hint" style={{ color: "#B8860B" }}>Valor anterior: "{textoAntigo}". Escolha a data no calendário para atualizar.</span>
+        <span className="field-hint" style={{ color: "#B8860B" }}>
+          Valor anterior: "{textoAntigo}". Escolha a data no calendário para atualizar, ou{" "}
+          <button type="button" onClick={(e) => { e.preventDefault(); onChange(""); }}
+            style={{ background: "none", border: "none", padding: 0, color: "#C0392B", fontWeight: 700, textDecoration: "underline", cursor: "pointer", font: "inherit" }}>
+            apagar este valor
+          </button>.
+        </span>
       )}
       {hint && <span className="field-hint">{hint}</span>}
     </label>
@@ -812,6 +853,15 @@ const emptyCargo = () => ({
   observacoesParticipacao: "",
 });
 
+// O cargo já tem alguma informação preenchida?
+function cargoTemDados(c) {
+  if (!c) return false;
+  const temTexto = (o) => Object.values(o || {}).some((v) => typeof v === "string" && v.trim());
+  return temTexto(c.condicoes) || temTexto(c.riscos) || (c.fotos || []).length > 0
+    || (c.fmea || []).some((l) => (l.fator || "").trim()) || rulaCalcUsada(c.rulaCalc)
+    || !!(c.conclusao || "").trim() || (c.recomendacoes || []).some((r) => (r || "").trim());
+}
+
 // ---------- Small UI helpers ----------
 
 function CargoForm_Field({ label, value, onChange, placeholder, multiline, hint, autoCorrigir = true }) {
@@ -918,7 +968,7 @@ function RulaResultado({ rotulo, final }) {
   );
 }
 
-function RulaCalculadora({ calc, onChange, rulaManual }) {
+function RulaCalculadora({ calc, onChange, rulaManual, onLimparManual }) {
   const [lado, setLado] = useState("dir");
   const r = calcularRula(calc);
   const L = calc[lado];
@@ -938,10 +988,20 @@ function RulaCalculadora({ calc, onChange, rulaManual }) {
         Marque a postura observada em cada segmento. O app aplica as tabelas A, B e C do método RULA (McAtamney & Corlett, 1993) e calcula a pontuação final e o nível de ação de cada lado.
       </p>
 
-      {!usada && (rulaManual?.finalD || rulaManual?.finalE) && (
-        <p style={{ fontSize: 12, background: "#FBF3DC", color: "#7A5C00", borderRadius: 8, padding: "8px 10px", margin: "0 0 12px", lineHeight: 1.45 }}>
-          Este cargo tem pontuações digitadas antes (final D: {rulaManual.finalD || "—"}, E: {rulaManual.finalE || "—"}). Elas continuam valendo até você usar a calculadora.
-        </p>
+      {!usada && Object.values(rulaManual || {}).some((v) => String(v ?? "").trim()) && (
+        <div style={{ fontSize: 12, background: "#FBF3DC", color: "#7A5C00", borderRadius: 8, padding: "8px 10px", margin: "0 0 12px", lineHeight: 1.5 }}>
+          <strong>Este cargo tem pontuações do RULA digitadas numa versão anterior do app.</strong> Elas saem no PDF até você usar a calculadora ou removê-las:
+          <span style={{ display: "block", margin: "4px 0" }}>
+            {[["Ombro", "ombroD", "ombroE"], ["Antebraço", "antebracoD", "antebracoE"], ["Punho", "punhoD", "punhoE"], ["Final", "finalD", "finalE"]]
+              .map(([rot, d, e]) => `${rot} D ${rulaManual[d] || "—"} / E ${rulaManual[e] || "—"}`).join(" · ")}
+            {" · "}Pescoço {rulaManual.pescoco || "—"} · Tronco {rulaManual.tronco || "—"} · Pernas {rulaManual.pernas || "—"}
+          </span>
+          {onLimparManual && (
+            <button type="button" onClick={onLimparManual} style={{ background: "#fff", border: "1.5px solid #B8860B", color: "#7A5C00", borderRadius: 7, padding: "5px 10px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "Inter, sans-serif" }}>
+              Remover pontuações antigas
+            </button>
+          )}
+        </div>
       )}
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -1073,7 +1133,7 @@ function FmeaTabela({ linhas, onChange }) {
 
 // ---------- Main component ----------
 
-function CargoForm({ initialCargo, onSave, onClose }) {
+function CargoForm({ initialCargo, onSave, onClose, onAlterar }) {
   const [cargo, setCargo] = useState(() => {
     const base = emptyCargo();
     const init = initialCargo || {};
@@ -1095,6 +1155,13 @@ function CargoForm({ initialCargo, onSave, onClose }) {
   });
   const [openSections, setOpenSections] = useState({ condicoes: true });
   const [tentouSalvarCargo, setTentouSalvarCargo] = useState(false);
+  // Cada alteração já vai para o laudo (e para o salvamento automático),
+  // então voltar pela seta ← não perde nada
+  const primeiraRenderizacao = useRef(true);
+  useEffect(() => {
+    if (primeiraRenderizacao.current) { primeiraRenderizacao.current = false; return; }
+    onAlterar?.(cargo);
+  }, [cargo]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggle = (key) =>
     setOpenSections((s) => ({ ...s, [key]: !s[key] }));
@@ -1107,7 +1174,14 @@ function CargoForm({ initialCargo, onSave, onClose }) {
 
   // A calculadora grava as marcações e atualiza as pontuações usadas no laudo
   const setRulaCalc = (calc) =>
-    setCargo((c) => ({ ...c, rulaCalc: calc, rula: rulaCalcUsada(calc) ? { ...c.rula, ...rulaParaCampos(calc) } : c.rula }));
+    setCargo((c) => ({
+      ...c,
+      rulaCalc: calc,
+      // Desmarcou tudo na calculadora: as pontuações saem do laudo também
+      rula: rulaCalcUsada(calc)
+        ? { ...c.rula, ...rulaParaCampos(calc) }
+        : rulaCalcUsada(c.rulaCalc) ? emptyCargo().rula : c.rula,
+    }));
 
   const setNR17 = (updater) =>
     setCargo((c) => ({
@@ -1965,7 +2039,8 @@ function CargoForm({ initialCargo, onSave, onClose }) {
           open={!!openSections.rula}
           onToggle={() => toggle("rula")}
         >
-          <RulaCalculadora calc={cargo.rulaCalc} onChange={setRulaCalc} rulaManual={cargo.rula} />
+          <RulaCalculadora calc={cargo.rulaCalc} onChange={setRulaCalc} rulaManual={cargo.rula}
+            onLimparManual={() => { if (window.confirm("Remover as pontuações antigas do RULA deste cargo?")) setCargo((c) => ({ ...c, rula: emptyCargo().rula })); }} />
         </CargoForm_SectionShell>
 
         <CargoForm_SectionShell
@@ -2372,6 +2447,14 @@ function CargoCard({ cargo, onOpen, onDelete, onToggleComplete }) {
       >
         <span className="card-name">{cargo.nome || "Cargo sem nome"}</span>
         <button
+          className="card-trash"
+          onClick={(e) => { e.stopPropagation(); onDelete(cargo.id); }}
+          aria-label={`Remover o cargo ${cargo.nome || "sem nome"} do laudo`}
+          title="Remover do laudo"
+        >
+          <Trash2 size={16} />
+        </button>
+        <button
           className={`card-status ${cargo.complete ? "is-complete" : ""}`}
           onClick={(e) => {
             e.stopPropagation();
@@ -2408,6 +2491,20 @@ function CargoList({ cargos, onAdd, onOpen, onDelete, onToggleComplete, onSeleci
           padding-bottom: 40px;
         }
 
+        .card-trash {
+          background: none;
+          border: 1.5px solid #F0D5D1;
+          color: #C0392B;
+          border-radius: 8px;
+          width: 32px;
+          height: 32px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          flex-shrink: 0;
+          margin-right: 8px;
+          cursor: pointer;
+        }
         .topbar {
           background: #0A2647;
           color: #F7F8FA;
@@ -2657,7 +2754,7 @@ const PROFISSOES_PADRAO = [
 
 // `salvas` são as profissões personalizadas do profissional, guardadas no perfil
 // dele no Firebase (aparecem em qualquer aparelho e em laudos futuros).
-function SelecaoCargos({ onConfirmar, onVoltar, jaAdicionados = [], onRemover, salvas = [], onAlterarSalvas }) {
+function SelecaoCargos({ onConfirmar, onVoltar, jaAdicionados = [], onRemover, salvas = [], onAlterarSalvas, cargosNoLaudo = [], onRemoverCargo }) {
   const [selecionados, setSelecionados] = useState(new Set());
   const [novoNome, setNovoNome] = useState("");
   const [confirmado, setConfirmado] = useState(false);
@@ -2771,6 +2868,37 @@ function SelecaoCargos({ onConfirmar, onVoltar, jaAdicionados = [], onRemover, s
           padding: 16px;
         }
 
+        .no-laudo {
+          background: #fff;
+          border: 1.5px solid #DDE3EC;
+          border-radius: 12px;
+          padding: 12px 14px;
+          margin: 0 0 18px;
+        }
+        .no-laudo-titulo { font-size: 13.5px; font-weight: 700; color: #0A2647; margin: 0 0 2px; }
+        .no-laudo-texto { font-size: 12px; color: #8A8A82; margin: 0 0 8px; line-height: 1.45; }
+        .no-laudo-item {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 7px 0;
+          border-top: 1px solid #F0EEE6;
+          color: #2E7D4F;
+        }
+        .no-laudo-nome { flex: 1; min-width: 0; font-size: 14px; font-weight: 600; color: #1C1F1D; overflow-wrap: anywhere; }
+        .no-laudo-remover {
+          background: none;
+          border: 1.5px solid #F0D5D1;
+          color: #C0392B;
+          border-radius: 8px;
+          width: 32px;
+          height: 32px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          flex-shrink: 0;
+          cursor: pointer;
+        }
         .grid {
           display: grid;
           grid-template-columns: 1fr 1fr;
@@ -2814,6 +2942,16 @@ function SelecaoCargos({ onConfirmar, onVoltar, jaAdicionados = [], onRemover, s
           background: #0A2647;
           border-color: #0A2647;
         }
+        /* Cargo que já está no laudo: aparece marcado (verde) */
+        .chip.is-na-lista {
+          border-color: #2E7D4F;
+          background: #E8F5EC;
+        }
+        .chip.is-na-lista .chip-check {
+          background: #2E7D4F;
+          border-color: #2E7D4F;
+        }
+        .chip.is-na-lista .chip-tag { color: #2E7D4F; }
         .chip-name {
           font-size: 13.5px;
           font-weight: 500;
@@ -2996,6 +3134,23 @@ function SelecaoCargos({ onConfirmar, onVoltar, jaAdicionados = [], onRemover, s
           </div>
         )}
 
+        {cargosNoLaudo.length > 0 && (
+          <div className="no-laudo">
+            <p className="no-laudo-titulo">Cargos que estão no laudo ({cargosNoLaudo.length})</p>
+            <p className="no-laudo-texto">Só estes cargos vão para o PDF. Toque na lixeira para tirar um cargo do laudo.</p>
+            {cargosNoLaudo.map((c) => (
+              <div className="no-laudo-item" key={c.id}>
+                <Check size={14} strokeWidth={3} />
+                <span className="no-laudo-nome">{c.nome || "Cargo sem nome"}</span>
+                <button className="no-laudo-remover" onClick={() => onRemoverCargo?.(c.id)}
+                  aria-label={`Tirar ${c.nome || "cargo sem nome"} do laudo`}>
+                  <Trash2 size={15} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
         <div className="grid">
           {PROFISSOES_PADRAO.map((p) => {
             const jaNaLista = jaAdicionados.includes(p.nome);
@@ -3011,7 +3166,7 @@ function SelecaoCargos({ onConfirmar, onVoltar, jaAdicionados = [], onRemover, s
                 </span>
                 <span className="chip-name">
                   {p.nome}
-                  {jaNaLista && <span className="chip-tag">toque para remover</span>}
+                  {jaNaLista && <span className="chip-tag">No laudo · toque para tirar</span>}
                 </span>
               </button>
             );
@@ -3037,13 +3192,14 @@ function SelecaoCargos({ onConfirmar, onVoltar, jaAdicionados = [], onRemover, s
                       </span>
                       <span className="chip-name">
                         {p.nome}
-                        {jaNaLista && <span className="chip-tag">toque para remover</span>}
+                        {jaNaLista && <span className="chip-tag">No laudo · toque para tirar</span>}
                       </span>
                     </button>
                     <button
                       className="extra-remove"
                       onClick={() => removeExtra(p.id)}
-                      aria-label={`Remover ${p.nome} da lista salva`}
+                      aria-label={`Apagar ${p.nome} das profissões salvas`}
+                      title="Apagar das profissões salvas (não tira do laudo)"
                     >
                       <X size={12} />
                     </button>
@@ -3915,6 +4071,7 @@ function DadosGerais({ onClose, dados, onChange: setDados }) {
             value={dados.capa.revisao}
             onChange={(v) => setCapa("revisao", v)}
             placeholder="Ex.: 00, 01, 02..."
+            hint="00 = primeira versão do laudo. Se ficar vazio, o PDF usa 00."
           />
           <CampoData label="Data de Apresentação dos Resultados aos Trabalhadores" id="data-apresentacao" value={dados.capa.dataApresentacao}
             onChange={(v) => setCapa("dataApresentacao", v)}
@@ -4638,9 +4795,10 @@ function PrioridadeSelector({ value, onChange }) {
   );
 }
 
-function AcaoCard({ acao, index, onUpdate, onDelete }) {
+function AcaoCard({ acao, index, onUpdate, onDelete, situacao, onAtualizarDoRisco }) {
   const [open, setOpen] = useState(true);
-  const prio = PRIORIDADES.find((p) => p.key === acao.prioridade);
+  const prio = PRIORIDADES.find((p) => p.key === acao.prioridade) || PRIORIDADES[1];
+  const aviso = { background: "#FBF3DC", border: "1px solid #E0B84B", borderRadius: 8, padding: "8px 10px", fontSize: 12, color: "#7A5C00", lineHeight: 1.45, margin: "0 0 10px" };
 
   return (
     <div className="acao-card" style={{ "--prio-color": prio.color }}>
@@ -4655,6 +4813,23 @@ function AcaoCard({ acao, index, onUpdate, onDelete }) {
 
       {open && (
         <div className="acao-body">
+          {!acaoTemConteudo(acao) && (
+            <p role="alert" style={aviso}>Esta ação ainda não entra no PDF: preencha "O quê" ou "Por quê".</p>
+          )}
+          {situacao?.tipo === "removido" && (
+            <p role="alert" style={aviso}>O risco que originou esta ação foi apagado (o cargo ou a linha do FMEA foram removidos). Se a ação não vale mais, exclua-a.</p>
+          )}
+          {situacao?.tipo === "incompleto" && (
+            <p role="alert" style={aviso}>O risco que originou esta ação está incompleto no FMEA (sem fator ou sem O, S e C). Confira o cargo.</p>
+          )}
+          {situacao?.tipo === "alterado" && (
+            <div role="alert" style={aviso}>
+              O risco que originou esta ação mudou: agora é <strong>IR {situacao.risco.ir} ({situacao.risco.cls.classe})</strong> em {situacao.risco.cargoNome}.
+              <button type="button" onClick={() => onAtualizarDoRisco?.(situacao.risco)} style={{ display: "block", marginTop: 6, background: "#fff", border: "1.5px solid #B8860B", color: "#7A5C00", borderRadius: 7, padding: "5px 10px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "Inter, sans-serif" }}>
+                Atualizar prioridade, "Por quê" e "Onde"
+              </button>
+            </div>
+          )}
           <span className="field-label">Prioridade de risco (PR)</span>
           <PrioridadeSelector
             value={acao.prioridade}
@@ -4748,14 +4923,22 @@ function PlanoAcao({ onClose, dados, onChange: setDados, cargos = [] }) {
     .map((l) => ({ ...l, cargoNome: c.nome || "Cargo sem nome", ir: indiceRisco(l), cls: classificarRisco(indiceRisco(l)) })))
     .sort((a, b) => b.ir - a.ir);
   const riscosComAcao = new Set((acoes || []).map((a) => a.origemRisco).filter(Boolean));
+  const riscoPorId = new Map(riscosFmea.map((r) => [r.id, r]));
+  // Todas as linhas do FMEA (mesmo incompletas), para saber se a origem ainda existe
+  const idsFmea = new Set((cargos || []).flatMap((c) => (c.fmea || []).map((l) => l.id)));
 
-  const criarAcaoDoRisco = (r) => setAcoes((a) => [...a, {
-    ...emptyAcao(),
-    prioridade: r.cls.prioridade,
-    origemRisco: r.id,
-    porQue: `${r.fator}${r.efeito ? ` — risco de ${r.efeito}` : ""} (IR ${r.ir}: ${r.cls.classe})`,
-    onde: r.cargoNome,
-  }]);
+  // Situação da ação criada a partir de um risco: ok | alterado | removido
+  const situacaoOrigem = (a) => {
+    if (!a.origemRisco) return null;
+    const r = riscoPorId.get(a.origemRisco);
+    if (!r) return idsFmea.has(a.origemRisco) ? { tipo: "incompleto" } : { tipo: "removido" };
+    if (a.origemResumo && a.origemResumo !== assinaturaRisco(r)) return { tipo: "alterado", risco: r };
+    return null;
+  };
+
+  const criarAcaoDoRisco = (r) => setAcoes((a) => [...a, { ...emptyAcao(), ...dadosAcaoDoRisco(r) }]);
+  const atualizarAcaoDoRisco = (acaoId, r) =>
+    setAcoes((a) => a.map((item) => (item.id === acaoId ? { ...item, ...dadosAcaoDoRisco(r) } : item)));
   const handleUpdate = (id, novaAcao) =>
     setAcoes((a) => a.map((item) => (item.id === id ? novaAcao : item)));
   const handleDelete = (id) => setAcoes((a) => a.filter((item) => item.id !== id));
@@ -5136,6 +5319,8 @@ function PlanoAcao({ onClose, dados, onChange: setDados, cargos = [] }) {
               </p>
               {riscosFmea.map((r) => {
                 const feito = riscosComAcao.has(r.id);
+                const acaoDoRisco = (acoes || []).find((a) => a.origemRisco === r.id);
+                const mudou = !!(acaoDoRisco && acaoDoRisco.origemResumo && acaoDoRisco.origemResumo !== assinaturaRisco(r));
                 return (
                   <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderTop: "1px solid #F0EEE6" }}>
                     <span style={{ flexShrink: 0, minWidth: 44, textAlign: "center", fontFamily: "Sora, sans-serif", fontWeight: 700, fontSize: 13, borderRadius: 7, padding: "4px 6px", background: r.cls.bg, color: r.cls.cor }}>
@@ -5145,13 +5330,22 @@ function PlanoAcao({ onClose, dados, onChange: setDados, cargos = [] }) {
                       <span style={{ display: "block", fontSize: 13, fontWeight: 600, color: "#1C1F1D", overflowWrap: "anywhere" }}>{r.fator}</span>
                       <span style={{ display: "block", fontSize: 11.5, color: "#8A8A82" }}>{r.cargoNome} · {r.cls.classe}</span>
                     </span>
-                    <button type="button" onClick={() => criarAcaoDoRisco(r)} disabled={feito} style={{
-                      flexShrink: 0, fontSize: 12, fontWeight: 700, borderRadius: 7, padding: "7px 10px", fontFamily: "Inter, sans-serif",
-                      cursor: feito ? "default" : "pointer", border: `1.5px solid ${feito ? "#D8D6CD" : "#0A2647"}`,
-                      background: feito ? "#F4F3EE" : "#fff", color: feito ? "#9B9A90" : "#0A2647",
-                    }}>
-                      {feito ? "✓ Ação criada" : "Criar ação"}
-                    </button>
+                    {mudou ? (
+                      <button type="button" onClick={() => atualizarAcaoDoRisco(acaoDoRisco.id, r)} style={{
+                        flexShrink: 0, fontSize: 12, fontWeight: 700, borderRadius: 7, padding: "7px 10px", fontFamily: "Inter, sans-serif",
+                        cursor: "pointer", border: "1.5px solid #B8860B", background: "#FBF3DC", color: "#7A5C00",
+                      }}>
+                        Atualizar ação
+                      </button>
+                    ) : (
+                      <button type="button" onClick={() => criarAcaoDoRisco(r)} disabled={feito} style={{
+                        flexShrink: 0, fontSize: 12, fontWeight: 700, borderRadius: 7, padding: "7px 10px", fontFamily: "Inter, sans-serif",
+                        cursor: feito ? "default" : "pointer", border: `1.5px solid ${feito ? "#D8D6CD" : "#0A2647"}`,
+                        background: feito ? "#F4F3EE" : "#fff", color: feito ? "#9B9A90" : "#0A2647",
+                      }}>
+                        {feito ? "✓ Ação criada" : "Criar ação"}
+                      </button>
+                    )}
                   </div>
                 );
               })}
@@ -5172,6 +5366,8 @@ function PlanoAcao({ onClose, dados, onChange: setDados, cargos = [] }) {
                 key={acao.id}
                 acao={acao}
                 index={idx}
+                situacao={situacaoOrigem(acao)}
+                onAtualizarDoRisco={(r) => atualizarAcaoDoRisco(acao.id, r)}
                 onUpdate={(novaAcao) => handleUpdate(acao.id, novaAcao)}
                 onDelete={() => handleDelete(acao.id)}
               />
@@ -5905,7 +6101,7 @@ const SECOES = [
     subtitle: "Ações 5W e considerações finais",
     icon: ClipboardList,
     accent: "#8266B0",
-    complete: (laudo) => (laudo.planoAcao?.acoes?.length || 0) > 0,
+    complete: (laudo) => (laudo.planoAcao?.acoes || []).some(acaoTemConteudo),
   },
   {
     key: "anexos",
@@ -6234,7 +6430,7 @@ function formatBRL(valor) {
 
 // ---------- Confirmation modal shown right before generating the PDF ----------
 
-function ConfirmarGeracaoModal({ empresaNome, onConfirm, onCancel }) {
+function ConfirmarGeracaoModal({ empresaNome, onConfirm, onCancel, cargosSemDados = [] }) {
   const [valor, setValor] = useState("");
   const [manter, setManter] = useState(null); // true | false | null (ainda não escolheu)
   const [gerando, setGerando] = useState(false);
@@ -6277,6 +6473,14 @@ function ConfirmarGeracaoModal({ empresaNome, onConfirm, onCancel }) {
           />
           <span className="modal-field-hint">Fica registrado só para seu controle pessoal.</span>
         </label>
+
+        {cargosSemDados.length > 0 && (
+          <div role="alert" style={{ background: "#FBF3DC", border: "1px solid #E0B84B", borderRadius: 8, padding: "9px 12px", fontSize: 12.5, color: "#7A5C00", lineHeight: 1.5, margin: "0 0 14px" }}>
+            <strong>{cargosSemDados.length === 1 ? "1 cargo está" : `${cargosSemDados.length} cargos estão`} sem nenhuma informação:</strong>{" "}
+            {cargosSemDados.join(", ")}. {cargosSemDados.length === 1 ? "Ele vai" : "Eles vão"} sair no PDF como "não avaliado".
+            {cargosSemDados.length === 1 ? "Se ele não faz parte deste laudo, cancele e tire-o em Cargos." : "Se não fazem parte deste laudo, cancele e tire-os em Cargos."}
+          </div>
+        )}
 
         <p className="modal-field-label" style={{ margin: "0 0 8px" }}>Salvar as informações deste projeto?</p>
         <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
@@ -6398,8 +6602,9 @@ function ConfirmarGeracaoModal({ empresaNome, onConfirm, onCancel }) {
 // `isAdmin` toggles between the personal view (own laudos only) and the
 // admin view (everyone's laudos, with the commission reference column).
 
-function Historico({ onClose, registros = [], isAdmin = false, emAba = false, onReabrir, onExcluir }) {
+function Historico({ onClose, registros = [], isAdmin = false, emAba = false, onReabrir, onExcluir, onAlternarPago }) {
   const [ultimaVisita, setUltimaVisita] = useState(null);
+  const [filtro, setFiltro] = useState("todos"); // todos | receber | pagos (só admin)
   const [baixandoId, setBaixandoId] = useState(null);
   const baixarArquivo = async (reg) => {
     if (baixandoId || !reg.onAbrirArquivo) return;
@@ -6430,10 +6635,17 @@ function Historico({ onClose, registros = [], isAdmin = false, emAba = false, on
     ? (registros || []).filter((r) => new Date(r.data) > new Date(ultimaVisita)).length
     : 0;
 
-  const registrosOrdenados = [...registros].sort((a, b) => new Date(b.data) - new Date(a.data));
+  const registrosOrdenados = [...registros]
+    .sort((a, b) => new Date(b.data) - new Date(a.data))
+    .filter((r) => !isAdmin || filtro === "todos" || (filtro === "pagos" ? !!r.pago : !r.pago));
+
+  // Resumo das comissões (só admin)
+  const somaComissao = (lista) => lista.reduce((s, r) => s + calcularComissao(r.valorCobrado), 0);
+  const aReceber = (registros || []).filter((r) => !r.pago);
+  const pagos = (registros || []).filter((r) => r.pago);
 
   return (
-    <div className="page" style={emAba ? { paddingBottom: 90 } : undefined}>
+    <div className="page" style={emAba ? { paddingBottom: "calc(140px + env(safe-area-inset-bottom, 0px))" } : undefined}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap');
 
@@ -6612,6 +6824,65 @@ function Historico({ onClose, registros = [], isAdmin = false, emAba = false, on
           font-family: 'Inter', sans-serif;
           cursor: pointer;
         }
+        .registro-acao-pago {
+          background: #E8F5EC;
+          border-color: #2E7D4F;
+          color: #2E7D4F;
+        }
+        .selo-pagamento {
+          display: inline-block;
+          margin-left: 8px;
+          vertical-align: middle;
+          font-size: 10.5px;
+          font-weight: 700;
+          letter-spacing: 0.3px;
+          text-transform: uppercase;
+          padding: 2px 7px;
+          border-radius: 20px;
+          background: #FCF1E6;
+          color: #B5621B;
+        }
+        .selo-pagamento.is-pago { background: #E8F5EC; color: #2E7D4F; }
+        .resumo-pagamentos {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 10px;
+          margin: 0 0 12px;
+        }
+        .resumo-item {
+          background: #fff;
+          border: 1px solid #ECEAE3;
+          border-radius: 12px;
+          padding: 12px 14px;
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+        }
+        .resumo-item strong { font-size: 18px; }
+        .resumo-rotulo { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; color: #8A8A82; }
+        .resumo-qtd { font-size: 12px; color: #8A8A82; }
+        .resumo-receber strong { color: #B5621B; }
+        .resumo-pago strong { color: #2E7D4F; }
+        .filtro-pagamentos {
+          display: flex;
+          gap: 6px;
+          margin: 0 0 14px;
+          overflow-x: auto;
+        }
+        .filtro-btn {
+          flex-shrink: 0;
+          background: #fff;
+          border: 1.5px solid #DDE3EC;
+          color: #44473F;
+          border-radius: 20px;
+          padding: 7px 12px;
+          font-size: 12.5px;
+          font-weight: 600;
+          font-family: 'Inter', sans-serif;
+          cursor: pointer;
+        }
+        .filtro-btn.is-ativo { background: #0A2647; border-color: #0A2647; color: #fff; }
+        .registro-acoes { flex-wrap: wrap; }
         .registro-acao-excluir {
           margin-left: auto;
           background: #fff;
@@ -6661,7 +6932,34 @@ function Historico({ onClose, registros = [], isAdmin = false, emAba = false, on
           </p>
         )}
 
-        {registrosOrdenados.length === 0 ? (
+        {isAdmin && (registros || []).length > 0 && (
+          <>
+            <div className="resumo-pagamentos">
+              <div className="resumo-item resumo-receber">
+                <span className="resumo-rotulo">A receber</span>
+                <strong>{formatBRL(somaComissao(aReceber))}</strong>
+                <span className="resumo-qtd">{aReceber.length} laudo{aReceber.length === 1 ? "" : "s"}</span>
+              </div>
+              <div className="resumo-item resumo-pago">
+                <span className="resumo-rotulo">Recebido</span>
+                <strong>{formatBRL(somaComissao(pagos))}</strong>
+                <span className="resumo-qtd">{pagos.length} laudo{pagos.length === 1 ? "" : "s"}</span>
+              </div>
+            </div>
+            <div className="filtro-pagamentos" role="tablist">
+              {[["todos", `Todos (${(registros || []).length})`], ["receber", `A receber (${aReceber.length})`], ["pagos", `Pagos (${pagos.length})`]].map(([k, rot]) => (
+                <button key={k} role="tab" aria-selected={filtro === k} className={`filtro-btn ${filtro === k ? "is-ativo" : ""}`} onClick={() => setFiltro(k)}>{rot}</button>
+              ))}
+            </div>
+          </>
+        )}
+
+        {registrosOrdenados.length === 0 && isAdmin && (registros || []).length > 0 ? (
+          <div className="empty-historico">
+            <FileText size={32} />
+            <p>Nenhum laudo neste filtro.</p>
+          </div>
+        ) : registrosOrdenados.length === 0 ? (
           <div className="empty-historico">
             <FileText size={32} />
             <p>Nenhum laudo gerado ainda.<br />Os laudos aparecem aqui depois de "Gerar PDF" em um projeto.</p>
@@ -6672,7 +6970,12 @@ function Historico({ onClose, registros = [], isAdmin = false, emAba = false, on
             return (
               <div className="registro-card" key={reg.id}>
                 <div className="registro-head">
-                  <span className="registro-empresa">{reg.empresaNome || "Empresa sem nome"}</span>
+                  <span className="registro-empresa">
+                    {reg.empresaNome || "Empresa sem nome"}
+                    {isAdmin && (
+                      <span className={`selo-pagamento ${reg.pago ? "is-pago" : ""}`}>{reg.pago ? "Pago" : "A receber"}</span>
+                    )}
+                  </span>
                   <span className="registro-data">
                     {new Date(reg.data).toLocaleDateString("pt-BR")}
                   </span>
@@ -6692,17 +6995,23 @@ function Historico({ onClose, registros = [], isAdmin = false, emAba = false, on
                     </span>
                   )}
                 </div>
-                {(onReabrir && reg.laudoSnapshot) || onExcluir ? (
+                {(onReabrir && reg.laudoSnapshot) || onExcluir || onAlternarPago ? (
                   <div className="registro-acoes">
                     {onReabrir && reg.laudoSnapshot && (
                       <button className="registro-acao-btn" onClick={() => onReabrir(reg)} disabled={!!baixandoId}>
-                        <FolderOpen size={14} /> Reabrir como projeto
+                        <FolderOpen size={14} /> Reabrir
+                      </button>
+                    )}
+                    {onAlternarPago && (
+                      <button className={`registro-acao-btn ${reg.pago ? "registro-acao-pago" : ""}`} onClick={() => onAlternarPago(reg)}
+                        aria-pressed={!!reg.pago} title={reg.pago ? "Toque para desmarcar" : "Marcar este laudo como pago"}>
+                        <Check size={14} /> {reg.pago ? "Pago" : "Marcar como pago"}
                       </button>
                     )}
                     {onExcluir && (
                       <button className="registro-acao-btn registro-acao-excluir" onClick={() => onExcluir(reg)} disabled={!!baixandoId}
                         aria-label={`Excluir o laudo ${reg.empresaNome || ""} da lista`}>
-                        <Trash2 size={14} /> Excluir
+                        <Trash2 size={15} />{!onAlternarPago && " Excluir"}
                       </button>
                     )}
                   </div>
@@ -6741,6 +7050,10 @@ function carregarPdfMake() {
       })
       .catch((erro) => {
         pdfMakePromessa = null;
+        // Parte do app que não carregou (app atualizado com a tela aberta, ou internet caiu)
+        if (/chunk|dynamically imported module|Failed to fetch|Importing a module/i.test(`${erro?.name} ${erro?.message}`)) {
+          throw Object.assign(new Error("Não foi possível carregar o gerador de PDF"), { code: "app-atualizado" });
+        }
         throw erro;
       });
   }
@@ -7031,15 +7344,105 @@ function graficoPizzaSvg(dados) {
 
 // ---------- Montagem do documento ----------
 
+// ---------- Proteção: dados antigos ou fora do formato não travam o PDF ----------
+function ehObjeto(v) {
+  return !!v && typeof v === "object" && !Array.isArray(v);
+}
+
+// Mesmo formato do modelo, mas com textos vazios (para itens de listas)
+function modeloEmBranco(modelo) {
+  if (typeof modelo === "string") return "";
+  if (Array.isArray(modelo)) return [];
+  if (ehObjeto(modelo)) return Object.fromEntries(Object.entries(modelo).map(([k, v]) => [k, modeloEmBranco(v)]));
+  return modelo;
+}
+
+// Encaixa o valor no formato do modelo (listas viram listas, textos viram textos...)
+function conformarAoModelo(modelo, valor) {
+  if (Array.isArray(modelo)) {
+    if (!Array.isArray(valor)) return modelo.map((item) => conformarAoModelo(item, undefined));
+    const itemModelo = modelo[0];
+    return valor
+      .filter((v) => v !== null && v !== undefined)
+      .map((v) => (itemModelo === undefined ? v : conformarAoModelo(modeloEmBranco(itemModelo), v)));
+  }
+  if (ehObjeto(modelo)) {
+    const v = ehObjeto(valor) ? valor : {};
+    const saida = { ...v };
+    Object.keys(modelo).forEach((k) => { saida[k] = conformarAoModelo(modelo[k], v[k]); });
+    return saida;
+  }
+  if (typeof modelo === "string") {
+    if (typeof valor === "string") return valor;
+    if (typeof valor === "number" && Number.isFinite(valor)) return String(valor);
+    return modelo;
+  }
+  if (typeof modelo === "boolean") return typeof valor === "boolean" ? valor : modelo;
+  if (typeof modelo === "number") return Number.isFinite(Number(valor)) ? Number(valor) : modelo;
+  return valor === undefined ? modelo : valor;
+}
+
+function sanitizarLaudoParaPdf(laudoBruto) {
+  const laudo = conformarAoModelo(emptyLaudo(), normalizarLaudo(ehObjeto(laudoBruto) ? laudoBruto : {}));
+  laudo.cargos = (laudo.cargos || []).filter(ehObjeto).map((c) => {
+    const cargo = conformarAoModelo(emptyCargo(), c);
+    cargo.fmea = (cargo.fmea || []).filter(ehObjeto);
+    cargo.fotos = (cargo.fotos || []).filter(ehObjeto);
+    return cargo;
+  });
+  laudo.planoAcao.acoes = (laudo.planoAcao.acoes || []).filter(ehObjeto);
+  return laudo;
+}
+
+// Confere cada imagem antes do PDF: imagem corrompida é deixada de fora (em vez de
+// travar o arquivo inteiro) e formatos como WEBP viram JPEG
+function converterImagemParaPdf(src, ladoMax = 2000) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const escala = Math.min(1, ladoMax / Math.max(img.width || 1, img.height || 1));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(img.width * escala));
+        canvas.height = Math.max(1, Math.round(img.height * escala));
+        const ctx = canvas.getContext("2d");
+        ctx.fillStyle = "#fff";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/jpeg", 0.88));
+      } catch {
+        resolve(null);
+      }
+    };
+    img.onerror = () => resolve(null);
+    img.src = src;
+  });
+}
+
+async function prepararImagensPdf(valor, cache = new Map()) {
+  if (typeof valor === "string") {
+    if (!valor.startsWith("data:image/")) return valor;
+    if (!cache.has(valor)) cache.set(valor, converterImagemParaPdf(valor));
+    return cache.get(valor);
+  }
+  if (Array.isArray(valor)) return Promise.all(valor.map((v) => prepararImagensPdf(v, cache)));
+  if (ehObjeto(valor)) {
+    const saida = {};
+    for (const [k, v] of Object.entries(valor)) saida[k] = await prepararImagensPdf(v, cache);
+    return saida;
+  }
+  return valor;
+}
+
 function montarDocumentoPdf(laudoBruto, opcoes = {}) {
-  const laudo = normalizarLaudo(laudoBruto);
+  const laudo = sanitizarLaudoParaPdf(laudoBruto);
   const dg = laudo.dadosGerais;
   const emp = dg.empresa, ctr = dg.contrato, resp = dg.responsavel, capa = dg.capa, textos = dg.textos;
   const pop = laudo.populacao;
   const cargos = (laudo.cargos || []).filter((c) => c && (temTexto(c.nome) || c.condicoes));
   const dataEmissao = opcoes.dataEmissao || hojeBr();
   const ano = dataEmissao.slice(-4);
-  const localServicos = txt(emp.enderecoLocal) || txt(emp.enderecoServicos);
+  const localServicos = txt(emp.enderecoLocal); // "Local dos serviços" (sem trocar pelo endereço da empresa)
   const empresaNome = txt(emp.razaoSocial) || "Empresa";
   const fonte = `Fonte: o autor (${ano}).`;
 
@@ -7093,6 +7496,7 @@ function montarDocumentoPdf(laudoBruto, opcoes = {}) {
         [`Revisão ${txt(capa.revisao) || "00"}`, dataEmissao],
         ["Coleta de dados", [txt(capa.dataInicioColeta), txt(capa.dataFimColeta)].filter(Boolean).join(" a ")],
         ["Validade", txt(capa.dataValidade)],
+        ["Apresentação aos trabalhadores", txt(capa.dataApresentacao)],
       ]
         .filter(([, v]) => temTexto(v))
         .map(([r, v]) => [{ text: r, bold: true, color: PDF_COR }, { text: v }]),
@@ -7138,7 +7542,7 @@ function montarDocumentoPdf(laudoBruto, opcoes = {}) {
   adicionar(tabelaRotuloValor([
     ["Razão social", emp.razaoSocial], ["CNPJ", emp.cnpj], ["Atividade econômica principal", emp.atividadePrincipal],
     ["CNAE principal", emp.cnae], ["Grau de risco da empresa", emp.grauRisco],
-    ["Local dos serviços", emp.enderecoLocal], ["Endereço", emp.enderecoServicos],
+    ["Local dos serviços", emp.enderecoLocal], ["Endereço da empresa", emp.enderecoServicos],
   ]));
   const tabContrato = tabelaRotuloValor([
     ["Identificação do contrato", ctr.identificacao], ["Objetivo do contrato", ctr.objetivo], ["Contratante", ctr.contratante],
@@ -7153,26 +7557,37 @@ function montarDocumentoPdf(laudoBruto, opcoes = {}) {
   content.push({ text: "DADOS DO RESPONSÁVEL TÉCNICO PELA ELABORAÇÃO DA AET", style: "h1", tocItem: true });
   adicionar(tabelaRotuloValor([
     ["Responsável técnico", resp.nome], ["Registro no CREFITO", resp.crefito], ["Formação", resp.formacao],
-    ["Empresa / consultoria", resp.empresaConsultoria], ["CNPJ", resp.cnpjConsultoria], ["Endereço", resp.endereco], ["Contato", resp.contato],
+    ["Empresa / consultoria", resp.empresaConsultoria], ["CNPJ da consultoria", resp.cnpjConsultoria], ["Endereço", resp.endereco], ["Contato", resp.contato],
     ["Responsável pela coleta de dados", resp.nomeColetaDados], ["CREFITO (coleta de dados)", resp.crefitoColetaDados],
   ]));
 
   // ----- Textos teóricos -----
-  const sIntro = titulo("Introdução");
-  content.push(...paragrafosPdf(textos.introducao));
-  if (temTexto(textos.conceito)) {
-    subtitulo(`${sIntro}.1`, "CONCEITO DE ERGONOMIA");
-    content.push(...paragrafosPdf(textos.conceito));
+  // Textos teóricos: seção apagada pelo usuário não aparece (nem título vazio)
+  if (temTexto(textos.introducao) || temTexto(textos.conceito) || temTexto(textos.legislacao)) {
+    const sIntro = titulo("Introdução");
+    content.push(...paragrafosPdf(textos.introducao));
+    let sub = 0;
+    if (temTexto(textos.conceito)) {
+      sub += 1;
+      subtitulo(`${sIntro}.${sub}`, "CONCEITO DE ERGONOMIA");
+      content.push(...paragrafosPdf(textos.conceito));
+    }
+    if (temTexto(textos.legislacao)) {
+      sub += 1;
+      subtitulo(`${sIntro}.${sub}`, "LEGISLAÇÃO");
+      content.push(...paragrafosPdf(textos.legislacao));
+    }
   }
-  if (temTexto(textos.legislacao)) {
-    subtitulo(`${sIntro}.2`, "LEGISLAÇÃO");
-    content.push(...paragrafosPdf(textos.legislacao));
+  const temDemanda = temTexto(textos.demanda);
+  if (temDemanda) {
+    titulo("Análise e constituição da demanda");
+    content.push(...paragrafosPdf(textos.demanda));
   }
-  titulo("Análise e constituição da demanda");
-  content.push(...paragrafosPdf(textos.demanda));
-  titulo("Métodos e metodologia", { quebra: false });
-  content[content.length - 1].margin = [0, 18, 0, 8];
-  content.push(...paragrafosPdf(textos.metodologia));
+  if (temTexto(textos.metodologia)) {
+    titulo("Métodos e metodologia", { quebra: !temDemanda });
+    if (temDemanda) content[content.length - 1].margin = [0, 18, 0, 8];
+    content.push(...paragrafosPdf(textos.metodologia));
+  }
 
   // ----- Exploração do funcionamento da empresa -----
   const sExp = titulo("Exploração do funcionamento da empresa");
@@ -7221,6 +7636,13 @@ function montarDocumentoPdf(laudoBruto, opcoes = {}) {
     const numeroCargo = `${sAet}.${idx + 2}`;
     subtitulo(numeroCargo, txt(cargo.nome) || `Cargo ${idx + 1}`, { pageBreak: "before", style: "h2Cargo" });
     content.push({ text: "ANÁLISE DE RISCOS ERGONÔMICOS", style: "rotuloSecao" });
+    const avaliado = cargoTemDados(cargo);
+    if (!avaliado) {
+      content.push({
+        text: "Função ainda não avaliada: nenhuma informação foi registrada para este cargo.",
+        color: "#B5621B", bold: true, fontSize: 10, margin: [0, 6, 0, 6],
+      });
+    }
     if (localServicos) content.push({ text: localServicos, style: "fonte", alignment: "left", margin: [0, 0, 0, 8] });
 
     const cond = cargo.condicoes || {};
@@ -7263,7 +7685,7 @@ function montarDocumentoPdf(laudoBruto, opcoes = {}) {
         widths: [130, "*"],
         body: RISK_CATEGORIES.map((cat) => [
           { text: cat.label, bold: true, color: cat.color, fillColor: cat.bg },
-          { text: txt(cargo.riscos?.[cat.key]) || "Não foram identificados fatores de risco.", color: temTexto(cargo.riscos?.[cat.key]) ? "#1C1F1D" : PDF_CINZA },
+          { text: txt(cargo.riscos?.[cat.key]) || (avaliado ? "Não foram identificados fatores de risco." : "Não avaliado."), color: temTexto(cargo.riscos?.[cat.key]) ? "#1C1F1D" : PDF_CINZA },
         ]),
       },
       layout: "laudoGrade",
@@ -7424,6 +7846,12 @@ function montarDocumentoPdf(laudoBruto, opcoes = {}) {
   // ----- Considerações finais e assinatura -----
   titulo("Considerações finais", { orientacao: "portrait" });
   content.push(...paragrafosPdf(laudo.planoAcao.consideracoes));
+  if (temTexto(capa.dataApresentacao)) {
+    content.push({
+      text: `Os resultados desta análise foram apresentados aos trabalhadores em ${txt(capa.dataApresentacao)}, conforme o item 17.3.8 da NR-17.`,
+      style: "paragrafo",
+    });
+  }
   const assinatura = [];
   assinatura.push({ text: `${localServicos ? localServicos + ", " : ""}${dataPorExtenso(dataEmissao)}.`, alignment: "right", margin: [0, 20, 0, 30] });
   if (imagemValida(capa.assinatura)) assinatura.push({ image: capa.assinatura, fit: [180, 70], alignment: "center" });
@@ -7801,7 +8229,8 @@ function nomeArquivoPdf(laudo) {
 async function baixarPdfLaudo(laudo, opcoes = {}) {
   const pdfMake = await carregarPdfMake();
   pdfMake.addTableLayouts(PDF_LAYOUTS);
-  const definicao = montarDocumentoPdf(laudo, opcoes);
+  const laudoSeguro = await prepararImagensPdf(sanitizarLaudoParaPdf(laudo));
+  const definicao = montarDocumentoPdf(laudoSeguro, opcoes);
   const documento = pdfMake.createPdf(definicao);
   const nome = opcoes.nomeArquivo || nomeArquivoPdf(laudo);
   await documento.download(nome);
@@ -7895,7 +8324,14 @@ function normalizarLaudo(salvo) {
       contrato: { ...base.dadosGerais.contrato, ...contratoSalvo },
       responsavel: { ...base.dadosGerais.responsavel, ...(dg.responsavel || {}) },
       textos: { ...base.dadosGerais.textos, ...textosSalvos },
-      capa: { ...base.dadosGerais.capa, ...(dg.capa || {}) },
+      capa: {
+        ...base.dadosGerais.capa,
+        ...(dg.capa || {}),
+        // Laudos de antes da validade automática: a data digitada à mão é mantida
+        validadeAutomatica: typeof dg.capa?.validadeAutomatica === "boolean"
+          ? dg.capa.validadeAutomatica
+          : !(dg.capa?.dataValidade || "").trim(),
+      },
     },
     populacao: {
       ...base.populacao,
@@ -7908,9 +8344,8 @@ function normalizarLaudo(salvo) {
     cargos: Array.isArray(salvo.cargos) ? salvo.cargos : [],
     planoAcao: {
       acoes: Array.isArray(plano.acoes) ? plano.acoes : [],
-      consideracoes: typeof plano.consideracoes === "string" && plano.consideracoes.trim()
-        ? plano.consideracoes
-        : TEXTO_CONSIDERACOES,
+      // Texto apagado de propósito continua apagado (o padrão só entra se nunca existiu)
+      consideracoes: typeof plano.consideracoes === "string" ? plano.consideracoes : TEXTO_CONSIDERACOES,
     },
     anexos: { ...base.anexos, ...(salvo.anexos || {}) },
   };
@@ -8265,7 +8700,8 @@ const TEXTO_MANUAL = `Guia rápido para elaborar a Análise Ergonômica do Traba
 • Checklist NR-17: local de trabalho, medições ambientais, mobiliário e itens de conformidade (Sim, Não ou N/A).
 • Participação dos Trabalhadores: registre quem foi entrevistado e a data de apresentação dos resultados (item 17.3.8 da NR-17).
 • Conclusão e Recomendações: escreva o diagnóstico do cargo e as recomendações.
-• Toque em "Salvar Cargo" ao terminar. Se faltar algo importante, o app avisa.
+• Tudo o que você preenche no cargo é salvo automaticamente, mesmo voltando pela seta. "Salvar Cargo" confere se falta algo importante.
+• Para tirar um cargo do laudo, use a lixeira na lista de Cargos ou o quadro "Cargos que estão no laudo" em "Selecionar cargos". Só os cargos desse quadro vão para o PDF.
 ## 6. Plano de Ação
 • Os riscos da FMEA de todos os cargos aparecem ordenados do maior para o menor. Toque em "Criar ação" para gerar a ação já com a prioridade e a justificativa.
 • Complete o quê, por quê, quem, como, onde e quando.
@@ -8280,7 +8716,7 @@ const TEXTO_MANUAL = `Guia rápido para elaborar a Análise Ergonômica do Traba
 ## 9. Laudos gerados
 • A barra de baixo tem três abas: Projetos, Laudos gerados e Configurações.
 • Na aba Laudos gerados ficam todos os laudos que você já gerou. "Baixar PDF" gera o arquivo de novo a qualquer momento.
-• "Reabrir como projeto" cria um novo projeto a partir do laudo (útil para revisões), e "Excluir" tira o laudo da sua lista.
+• "Reabrir" cria um novo projeto a partir do laudo (útil para revisões), e "Excluir" tira o laudo da sua lista.
 ## 10. Sem internet
 • O app continua funcionando sem internet no mesmo aparelho. As alterações são enviadas para a nuvem quando a conexão voltar.
 • Para gerar o PDF pela primeira vez no aparelho é preciso estar conectado.
@@ -9105,6 +9541,28 @@ function AppLaudo() {
       .catch((erro) => alert("Não foi possível excluir o laudo: " + mensagemErroFirebase(erro)));
   };
 
+  // Admin: marcar laudo como pago / apagar de vez
+  const alternarPago = async (r) => {
+    const dados = { pago: !r.pago, pagoEm: !r.pago ? new Date().toISOString() : null };
+    setRegistros((lista) => lista.map((x) => (x.id === r.id ? { ...x, ...dados } : x)));
+    try {
+      await aguardarGravacao([setDoc(doc(db, "registros", r.id), dados, { merge: true })]);
+    } catch (erro) {
+      setRegistros((lista) => lista.map((x) => (x.id === r.id ? { ...x, pago: r.pago, pagoEm: r.pagoEm } : x)));
+      alert("Não foi possível atualizar o pagamento: " + mensagemErroFirebase(erro));
+    }
+  };
+
+  const excluirRegistroDefinitivo = async (r) => {
+    if (!window.confirm(`Excluir DEFINITIVAMENTE o laudo "${r.empresaNome || "sem nome"}" (gerado por ${r.profissionalNome || r.profissionalEmail || "—"})? Ele some para todos e não dá para desfazer.`)) return;
+    try {
+      await aguardarGravacao([deleteDoc(doc(db, "registros", r.id))]);
+      setRegistros((lista) => lista.filter((x) => x.id !== r.id));
+    } catch (erro) {
+      alert("Não foi possível excluir o laudo: " + mensagemErroFirebase(erro));
+    }
+  };
+
   const enviarLinkNovaSenha = async () => {
     const email = usuario?.email;
     if (!email) return;
@@ -9170,14 +9628,42 @@ function AppLaudo() {
     setTela("cargoForm");
   };
 
-  const handleExcluirCargo = (id) =>
-    setLaudo((l) => ({ ...l, cargos: (l.cargos || []).filter((c) => c.id !== id) }));
+  // Tira um cargo do laudo (pede confirmação; avisa se já tem informações preenchidas)
+  const handleExcluirCargo = (id) => {
+    const cargo = (laudo.cargos || []).find((c) => c.id === id);
+    if (!cargo) return;
+    const nome = cargo.nome || "sem nome";
+    const msg = cargoTemDados(cargo)
+      ? `Tirar o cargo "${nome}" do laudo? As informações preenchidas nele (fotos, riscos, RULA etc.) serão apagadas.`
+      : `Tirar o cargo "${nome}" do laudo?`;
+    if (!window.confirm(msg)) return;
+    const idsRiscos = new Set((cargo.fmea || []).map((l) => l.id));
+    const ligadas = (laudo.planoAcao?.acoes || []).filter((a) => a.origemRisco && idsRiscos.has(a.origemRisco));
+    const apagarAcoes = ligadas.length > 0 && window.confirm(
+      `${ligadas.length === 1 ? "Há 1 ação" : `Há ${ligadas.length} ações`} do Plano de Ação criada${ligadas.length === 1 ? "" : "s"} a partir dos riscos deste cargo. Apagar também?`
+    );
+    setLaudo((l) => ({
+      ...l,
+      cargos: (l.cargos || []).filter((c) => c.id !== id),
+      planoAcao: apagarAcoes
+        ? { ...l.planoAcao, acoes: (l.planoAcao?.acoes || []).filter((a) => !(a.origemRisco && idsRiscos.has(a.origemRisco))) }
+        : l.planoAcao,
+    }));
+  };
 
   const handleToggleCargoComplete = (id) =>
     setLaudo((l) => ({
       ...l,
       cargos: (l.cargos || []).map((c) => (c.id === id ? { ...c, complete: !c.complete } : c)),
     }));
+
+  // Alterações do formulário do cargo, gravadas no laudo enquanto o usuário preenche
+  const handleAlterarCargo = (dadosFormulario) => {
+    setLaudo((l) => ({
+      ...l,
+      cargos: (l.cargos || []).map((c) => (c.id === cargoAbertoId ? { ...c, ...dadosFormulario, id: c.id } : c)),
+    }));
+  };
 
   const handleSalvarCargo = (dadosFormulario) => {
     setLaudo((l) => ({
@@ -9200,7 +9686,14 @@ function AppLaudo() {
     try {
       await baixarPdfLaudo(laudo);
     } catch (erro) {
-      alert("Não foi possível gerar o PDF: " + (erro?.message || "erro desconhecido") + ". Verifique a internet e tente de novo.");
+      if (erro?.code === "app-atualizado") {
+        if (window.confirm("Não foi possível carregar o gerador de PDF. Isso acontece quando o ErgoLaudo foi atualizado ou a internet caiu. Recarregar o app agora? Suas informações ficam salvas.")) {
+          try { await salvarLaudoNaNuvem(uid, id, laudo); } catch { /* recarrega mesmo assim */ }
+          window.location.reload();
+        }
+        return;
+      }
+      alert("Não foi possível gerar o PDF: " + (erro?.message || "erro desconhecido") + ". Tente de novo; se continuar, me envie esta mensagem.");
       return;
     }
     try {
@@ -9309,7 +9802,12 @@ function AppLaudo() {
         onConfirmar={handleConfirmarSelecaoCargos}
         onVoltar={() => setTela("cargos")}
         jaAdicionados={nomesJaAdicionados}
-        onRemover={(nome) => setLaudo((l) => ({ ...l, cargos: (l.cargos || []).filter((c) => c.nome !== nome) }))}
+        onRemover={(nome) => {
+          const alvo = (laudo.cargos || []).find((c) => c.nome === nome);
+          if (alvo) handleExcluirCargo(alvo.id);
+        }}
+        cargosNoLaudo={(laudo.cargos || []).map((c) => ({ id: c.id, nome: c.nome }))}
+        onRemoverCargo={handleExcluirCargo}
         salvas={perfil.cargosPersonalizados}
         onAlterarSalvas={alterarCargosSalvos}
       />
@@ -9322,6 +9820,7 @@ function AppLaudo() {
         key={cargoAberto.id}
         initialCargo={cargoAberto}
         onSave={handleSalvarCargo}
+        onAlterar={handleAlterarCargo}
         onClose={() => setTela("cargos")}
       />
     );
@@ -9391,6 +9890,10 @@ function AppLaudo() {
           const dataEmissao = d && !isNaN(d) ? d.toLocaleDateString("pt-BR") : undefined;
           await baixarPdfLaudo(restaurado, { dataEmissao });
         } catch (erro) {
+          if (erro?.code === "app-atualizado") {
+            if (window.confirm("Não foi possível carregar o gerador de PDF (o ErgoLaudo foi atualizado ou a internet caiu). Recarregar o app agora?")) window.location.reload();
+            return;
+          }
           alert("Não foi possível gerar o PDF deste laudo: " + (erro?.code ? mensagemErroFirebase(erro) : erro?.message || "erro desconhecido"));
         }
       },
@@ -9402,7 +9905,8 @@ function AppLaudo() {
           registros={usuarioAtual.isAdmin ? registrosComAcao : registrosComAcao.filter((r) => r.uid === uid && !ocultos.has(r.id))}
           isAdmin={usuarioAtual.isAdmin}
           onReabrir={(r) => { setAbaAtiva("laudo"); reabrirRegistro(r); }}
-          onExcluir={usuarioAtual.isAdmin ? null : excluirRegistroDaLista}
+          onExcluir={usuarioAtual.isAdmin ? excluirRegistroDefinitivo : excluirRegistroDaLista}
+          onAlternarPago={usuarioAtual.isAdmin ? alternarPago : null}
         />
         <NavBar />
       </>
@@ -9726,6 +10230,7 @@ function AppLaudo() {
       {mostrarModalGeracao && (
         <ConfirmarGeracaoModal
           empresaNome={laudo.dadosGerais?.empresa?.razaoSocial}
+          cargosSemDados={(laudo.cargos || []).filter((c) => !cargoTemDados(c)).map((c) => c.nome || "Cargo sem nome")}
           onConfirm={handleConfirmarGeracao}
           onCancel={() => setMostrarModalGeracao(false)}
         />
