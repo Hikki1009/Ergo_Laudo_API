@@ -7102,7 +7102,10 @@ function Historico({ onClose, registros = [], isAdmin = false, emAba = false, on
                   </span>
                 </div>
                 {isAdmin && (
-                  <p className="registro-profissional">Gerado por {reg.profissionalNome || reg.profissionalEmail}</p>
+                  <p className="registro-profissional">
+                    Gerado por {reg.profissionalNome || reg.profissionalEmail}
+                    {reg.profissionalNome && reg.profissionalEmail ? <> · <a href={`mailto:${reg.profissionalEmail}`} style={{ color: "inherit", overflowWrap: "anywhere" }}>{reg.profissionalEmail}</a></> : null}
+                  </p>
                 )}
                 <div className="registro-footer">
                   <button className="registro-arquivo-btn" onClick={() => baixarArquivo(reg)} disabled={!!baixandoId}
@@ -9316,6 +9319,140 @@ function TelaProjetos({
 // ---------- Blocos visuais da tela de Configurações ----------
 // Ficam fora do AppLaudo: se forem criados dentro dele, o React recria os campos
 // a cada letra digitada e o input perde o foco.
+// ---------- Lista de usuários (só para o administrador) ----------
+// Lê os perfis em users/{uid} só quando o admin pede (não pesa na abertura do app).
+function ListaUsuariosAdmin({ registros = [], escuro, borda, texto, cor }) {
+  const [estado, setEstado] = useState("fechado"); // fechado | carregando | pronto | erro
+  const [usuarios, setUsuarios] = useState([]);
+  const [busca, setBusca] = useState("");
+  const [copiado, setCopiado] = useState("");
+  const cinza = escuro ? "#9B9A90" : "#8A8A82";
+
+  const carregar = async () => {
+    setEstado("carregando");
+    try {
+      const snap = await getDocs(collection(db, "users"));
+      const laudosPorUsuario = {};
+      (registros || []).forEach((r) => { if (r?.uid) laudosPorUsuario[r.uid] = (laudosPorUsuario[r.uid] || 0) + 1; });
+      const lista = snap.docs.map((d) => {
+        const p = d.data() || {};
+        return {
+          uid: d.id,
+          nome: typeof p.nome === "string" ? p.nome.trim() : "",
+          email: typeof p.email === "string" ? p.email.trim() : "",
+          crefito: typeof p.crefito === "string" ? p.crefito.trim() : "",
+          cadastro: p.aceiteTermos?.em || "",
+          laudos: laudosPorUsuario[d.id] || 0,
+        };
+      }).sort((a, b) => (a.nome || a.email).localeCompare(b.nome || b.email, "pt-BR", { sensitivity: "base" }));
+      setUsuarios(lista);
+      setEstado("pronto");
+    } catch {
+      setEstado("erro");
+    }
+  };
+
+  const copiar = async (email) => {
+    try {
+      await navigator.clipboard.writeText(email);
+    } catch {
+      const campo = document.createElement("textarea");
+      campo.value = email;
+      document.body.appendChild(campo);
+      campo.select();
+      try { document.execCommand("copy"); } catch { /* sem suporte */ }
+      campo.remove();
+    }
+    setCopiado(email);
+    setTimeout(() => setCopiado((atual) => (atual === email ? "" : atual)), 2000);
+  };
+
+  if (estado === "fechado" || estado === "erro") {
+    return (
+      <div style={{ padding: "14px 16px" }}>
+        {estado === "erro" && (
+          <p style={{ fontSize: 12.5, color: "#B3261E", margin: "0 0 10px" }}>
+            Não foi possível carregar os usuários. Verifique a internet e tente de novo.
+          </p>
+        )}
+        <button onClick={carregar} style={{
+          width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+          padding: "11px 14px", borderRadius: 10, border: `1.5px solid ${cor}`, background: "none",
+          color: escuro ? "#F0EEE6" : cor, fontFamily: "Inter, sans-serif", fontSize: 14, fontWeight: 600, cursor: "pointer",
+        }}>
+          <Users size={16} /> Ver usuários e e-mails
+        </button>
+      </div>
+    );
+  }
+  if (estado === "carregando") {
+    return <p style={{ fontSize: 13, color: cinza, margin: 0, padding: "14px 16px" }}>Carregando usuários…</p>;
+  }
+
+  const termo = busca.trim().toLowerCase();
+  const filtrados = termo
+    ? usuarios.filter((u) => [u.nome, u.email, u.crefito].some((v) => v.toLowerCase().includes(termo)))
+    : usuarios;
+  const todosEmails = filtrados.map((u) => u.email).filter(Boolean).join(", ");
+
+  return (
+    <div>
+      <div style={{ padding: "12px 16px", borderBottom: `1px solid ${borda}` }}>
+        <p style={{ fontSize: 12.5, color: cinza, margin: "0 0 8px" }}>
+          {usuarios.length} usuário{usuarios.length === 1 ? "" : "s"} cadastrado{usuarios.length === 1 ? "" : "s"}
+        </p>
+        <input
+          value={busca}
+          onChange={(e) => setBusca(e.target.value)}
+          placeholder="Buscar por nome, e-mail ou CREFITO"
+          aria-label="Buscar usuário"
+          style={{
+            width: "100%", boxSizing: "border-box", fontFamily: "Inter, sans-serif", fontSize: 14,
+            padding: "9px 12px", borderRadius: 8, border: `1.5px solid ${borda}`,
+            background: escuro ? "#151823" : "#fff", color: texto,
+          }}
+        />
+        {todosEmails && (
+          <button onClick={() => copiar(todosEmails)} style={{
+            marginTop: 8, background: "none", border: "none", padding: 0, cursor: "pointer",
+            fontFamily: "Inter, sans-serif", fontSize: 12.5, fontWeight: 600, color: escuro ? "#F0EEE6" : cor, textDecoration: "underline",
+          }}>
+            {copiado === todosEmails ? "✓ E-mails copiados" : `Copiar todos os e-mails${termo ? " da busca" : ""}`}
+          </button>
+        )}
+      </div>
+      {filtrados.length === 0 && (
+        <p style={{ fontSize: 13, color: cinza, margin: 0, padding: "14px 16px" }}>Nenhum usuário encontrado.</p>
+      )}
+      {filtrados.map((u, i) => (
+        <div key={u.uid} className="usuario-admin" style={{ padding: "12px 16px", borderBottom: i < filtrados.length - 1 ? `1px solid ${borda}` : "none" }}>
+          <p style={{ fontSize: 14, fontWeight: 600, color: texto, margin: "0 0 2px", overflowWrap: "anywhere" }}>
+            {u.nome || "Sem nome no perfil"}
+          </p>
+          {u.email ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <a href={`mailto:${u.email}`} style={{ fontSize: 13.5, color: escuro ? "#8AB4F8" : "#1A5276", overflowWrap: "anywhere" }}>{u.email}</a>
+              <button onClick={() => copiar(u.email)} aria-label={`Copiar e-mail de ${u.nome || u.email}`} style={{
+                background: "none", border: `1px solid ${borda}`, borderRadius: 6, padding: "3px 8px", cursor: "pointer",
+                fontFamily: "Inter, sans-serif", fontSize: 11.5, fontWeight: 600, color: copiado === u.email ? "#2E7D4F" : cinza,
+              }}>
+                {copiado === u.email ? "✓ Copiado" : "Copiar"}
+              </button>
+            </div>
+          ) : (
+            <p style={{ fontSize: 13, color: cinza, margin: 0 }}>E-mail não informado</p>
+          )}
+          <p style={{ fontSize: 12, color: cinza, margin: "4px 0 0" }}>
+            {[u.crefito && `CREFITO ${u.crefito}`, `${u.laudos} laudo${u.laudos === 1 ? "" : "s"} gerado${u.laudos === 1 ? "" : "s"}`,
+              u.cadastro && !Number.isNaN(new Date(u.cadastro).getTime()) && `desde ${new Date(u.cadastro).toLocaleDateString("pt-BR")}`]
+              .filter(Boolean).join(" · ")}
+          </p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function ConfigSectionLabel({ escuro, children }) {
   return (
     <p style={{
@@ -10346,6 +10483,16 @@ function AppLaudo() {
         </div>
 
         <div style={{ maxWidth: 640, margin: "0 auto", padding: "0 16px" }}>
+
+          {/* Usuários (só administrador) */}
+          {isAdmin && (
+            <>
+              <ConfigSectionLabel escuro={ESCURO}>Usuários</ConfigSectionLabel>
+              <ConfigCard cardBg={CARD_BG} borda={BORDA} escuro={ESCURO}>
+                <ListaUsuariosAdmin registros={registros} escuro={ESCURO} borda={BORDA} texto={TEXTO} cor={COR} />
+              </ConfigCard>
+            </>
+          )}
 
           {/* Perfil */}
           <ConfigSectionLabel escuro={ESCURO}>Perfil</ConfigSectionLabel>
