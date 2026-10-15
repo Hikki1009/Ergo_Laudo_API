@@ -183,6 +183,44 @@ function lerImagemComprimida(file, { ladoMax = 1280, bytesMax = 250000 } = {}) {
   });
 }
 
+// Transforma cada página de um PDF (ex.: certificado) em imagem JPEG.
+// A biblioteca pdf.js só é baixada quando alguém escolhe um PDF.
+async function paginasDoPdf(file, { ladoMax = 1800, bytesMax = 600000, maxPaginas = 6 } = {}) {
+  const modulo = await import("pdfjs-dist/legacy/build/pdf");
+  const pdfjs = modulo.getDocument ? modulo : modulo.default;
+  if (!window.pdfjsWorker?.WorkerMessageHandler) {
+    const trabalhador = await import("pdfjs-dist/legacy/build/pdf.worker");
+    window.pdfjsWorker = trabalhador.WorkerMessageHandler ? trabalhador : trabalhador.default;
+  }
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  // isEvalSupported: false — não executa código vindo de dentro do PDF
+  const documento = await pdfjs.getDocument({ data: bytes, isEvalSupported: false }).promise;
+  try {
+    const totalPaginas = documento.numPages;
+    const imagens = [];
+    for (let n = 1; n <= Math.min(totalPaginas, maxPaginas); n++) {
+      const pagina = await documento.getPage(n);
+      const base = pagina.getViewport({ scale: 1 });
+      const escala = Math.min(3, ladoMax / Math.max(base.width, base.height));
+      const vista = pagina.getViewport({ scale: escala });
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(vista.width));
+      canvas.height = Math.max(1, Math.round(vista.height));
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      await pagina.render({ canvasContext: ctx, viewport: vista }).promise;
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.92));
+      if (!blob) throw new Error("Não foi possível converter a página");
+      imagens.push(await lerImagemComprimida(blob, { ladoMax, bytesMax }));
+      pagina.cleanup();
+    }
+    return { imagens, totalPaginas };
+  } finally {
+    documento.destroy();
+  }
+}
+
 // Lê a imagem escolhida num <input type="file"> e entrega já reduzida
 async function tratarArquivoImagem(e, aoCarregar) {
   const file = e.target.files?.[0];
@@ -5665,23 +5703,46 @@ function Anexos_SectionShell({ title, subtitle, accent, open, onToggle, children
 
 function Anexos({ onClose, dados, onChange }) {
   const { status: saveStatusAnexos, salvar: salvarSecaoAnexos } = useSalvarSecao();
-  const certificado = dados?.certificado || null;
-  const setCertificado = (value) => onChange((d) => ({ ...d, certificado: value }));
+  // Página 1 fica em "certificado" (compatível com laudos antigos); as demais em "certificadoExtras"
+  const paginasCert = paginasCertificado(dados);
+  const definirPaginasCert = (lista) => onChange((d) => ({ ...d, certificado: lista[0] || null, certificadoExtras: lista.slice(1) }));
+  const [lendoCert, setLendoCert] = useState(false);
   const [openSections, setOpenSections] = useState({ entrevista: false });
 
   const toggle = (key) => setOpenSections((s) => ({ ...s, [key]: !s[key] }));
 
   // Certificado precisa ficar legível: permite imagem maior que as fotos comuns
+  const MAX_PAGINAS_CERT = 6;
   const handleAddCertificado = async (e) => {
-    const file = e.target.files?.[0];
+    const arquivos = Array.from(e.target.files || []);
     e.target.value = "";
-    if (!file) return;
-    try {
-      setCertificado(await lerImagemComprimida(file, { ladoMax: 1800, bytesMax: 600000 }));
-    } catch {
-      alert("Não foi possível abrir esta imagem. Tente outra foto.");
+    if (!arquivos.length) return;
+    setLendoCert(true);
+    const novas = [];
+    const problemas = [];
+    let cortou = false;
+    for (const arquivo of arquivos) {
+      const vagas = MAX_PAGINAS_CERT - paginasCert.length - novas.length;
+      if (vagas <= 0) { cortou = true; break; }
+      const ehPdf = arquivo.type === "application/pdf" || /\.pdf$/i.test(arquivo.name || "");
+      try {
+        if (ehPdf) {
+          const { imagens, totalPaginas } = await paginasDoPdf(arquivo, { maxPaginas: vagas });
+          novas.push(...imagens);
+          if (totalPaginas > imagens.length) cortou = true;
+        } else {
+          novas.push(await lerImagemComprimida(arquivo, { ladoMax: 1800, bytesMax: 600000 }));
+        }
+      } catch {
+        problemas.push(arquivo.name || (ehPdf ? "PDF" : "imagem"));
+      }
     }
+    setLendoCert(false);
+    if (novas.length) definirPaginasCert([...paginasCert, ...novas]);
+    if (problemas.length) alert(`Não foi possível abrir: ${problemas.join(", ")}. Tente outro arquivo ou envie um print do certificado.`);
+    if (cortou) alert(`O certificado pode ter no máximo ${MAX_PAGINAS_CERT} páginas. As páginas a mais ficaram de fora.`);
   };
+  const removerPaginaCert = (i) => definirPaginasCert(paginasCert.filter((_, j) => j !== i));
 
   return (
     <div className="page">
@@ -5944,6 +6005,17 @@ function Anexos({ onClose, dados, onChange }) {
           display: block;
           background: #fff;
         }
+        .cert-pagina {
+          position: absolute;
+          top: 8px;
+          left: 8px;
+          background: rgba(28,31,29,0.75);
+          color: #fff;
+          border-radius: 6px;
+          padding: 5px 9px;
+          font-size: 12px;
+          font-weight: 600;
+        }
         .cert-remove {
           position: absolute;
           top: 8px;
@@ -6072,21 +6144,28 @@ function Anexos({ onClose, dados, onChange }) {
           open={!!openSections.certificado}
           onToggle={() => toggle("certificado")}
         >
-          {certificado ? (
-            <div className="cert-preview">
-              <img src={certificado} alt="Certificado de capacitação" />
-              <button className="cert-remove" onClick={() => setCertificado(null)}>
+          {paginasCert.map((src, i) => (
+            <div className="cert-preview" key={i}>
+              <img src={src} alt={`Certificado de capacitação — página ${i + 1}`} />
+              {paginasCert.length > 1 && <span className="cert-pagina">Página {i + 1}</span>}
+              <button className="cert-remove" onClick={() => removerPaginaCert(i)}>
                 <Trash2 size={13} /> Remover
               </button>
             </div>
-          ) : (
-            <div className="cert-upload-area">
+          ))}
+          {lendoCert ? (
+            <p className="reference-note" style={{ marginTop: 14 }}>Lendo o certificado…</p>
+          ) : paginasCert.length < MAX_PAGINAS_CERT && (
+            <div className="cert-upload-area" style={paginasCert.length ? { marginTop: 14 } : undefined}>
               <p className="reference-note" style={{ marginBottom: 10 }}>
-                Envie uma imagem (foto, print ou scan) do certificado. Se ele estiver em PDF, tire um print da página antes de enviar.
+                {paginasCert.length
+                  ? "Para incluir mais páginas (ex.: o verso), envie outro arquivo."
+                  : "Envie o certificado em PDF ou em imagem (foto, print ou scan). Se o PDF tiver várias páginas, todas entram no laudo."}
               </p>
               <input
                 type="file"
-                accept="image/*"
+                accept="image/*,application/pdf,.pdf"
+                multiple
                 onChange={handleAddCertificado}
                 className="cert-upload-input"
               />
@@ -6519,8 +6598,8 @@ function ConfirmarGeracaoModal({ empresaNome, onConfirm, onCancel, cargosSemDado
         {cargosSemDados.length > 0 && (
           <div role="alert" style={{ background: "#FBF3DC", border: "1px solid #E0B84B", borderRadius: 8, padding: "9px 12px", fontSize: 12.5, color: "#7A5C00", lineHeight: 1.5, margin: "0 0 14px" }}>
             <strong>{cargosSemDados.length === 1 ? "1 cargo está" : `${cargosSemDados.length} cargos estão`} sem nenhuma informação:</strong>{" "}
-            {cargosSemDados.join(", ")}. {cargosSemDados.length === 1 ? "Ele vai" : "Eles vão"} sair no PDF como "não avaliado".
-            {cargosSemDados.length === 1 ? "Se ele não faz parte deste laudo, cancele e tire-o em Cargos." : "Se não fazem parte deste laudo, cancele e tire-os em Cargos."}
+            {cargosSemDados.join(", ")}. {cargosSemDados.length === 1 ? "Ele vai ficar de fora do PDF" : "Eles vão ficar de fora do PDF"} (continua{cargosSemDados.length === 1 ? "" : "m"} guardado{cargosSemDados.length === 1 ? "" : "s"} no projeto).
+            {cargosSemDados.length === 1 ? " Para incluí-lo, cancele e preencha os dados dele em Cargos." : " Para incluí-los, cancele e preencha os dados deles em Cargos."}
           </div>
         )}
 
@@ -7081,7 +7160,7 @@ function carregarPdfMake() {
   if (!pdfMakePromessa) {
     pdfMakePromessa = Promise.all([import("pdfmake/build/pdfmake"), import("pdfmake/build/vfs_fonts")])
       .then(([modPdf, modFontes]) => {
-        const candidatos = [modPdf, modPdf?.default, modPdf?.default?.default, globalThis.pdfMake];
+        const candidatos = [modPdf, modPdf?.default, modPdf?.default?.default, window.pdfMake];
         const pdfMake = candidatos.find((c) => c && typeof c.createPdf === "function");
         if (!pdfMake) throw new Error("Biblioteca de PDF não encontrada");
         const fontes = modFontes?.default || modFontes;
@@ -7269,6 +7348,12 @@ function dataPorExtenso(br) {
 
 const txt = (v) => (typeof v === "string" ? v.trim() : v == null ? "" : String(v).trim());
 const temTexto = (v) => txt(v) !== "";
+
+// Páginas do certificado: a 1ª fica em "certificado", as demais em "certificadoExtras"
+function paginasCertificado(anexos) {
+  const extras = Array.isArray(anexos?.certificadoExtras) ? anexos.certificadoExtras : [];
+  return [anexos?.certificado, ...extras].filter((v) => typeof v === "string" && v);
+}
 
 function imagemValida(src) {
   return typeof src === "string" && /^data:image\/(jpeg|jpg|png);base64,/i.test(src);
@@ -7481,7 +7566,8 @@ function montarDocumentoPdf(laudoBruto, opcoes = {}) {
   const dg = laudo.dadosGerais;
   const emp = dg.empresa, ctr = dg.contrato, resp = dg.responsavel, capa = dg.capa, textos = dg.textos;
   const pop = laudo.populacao;
-  const cargos = ordenarCargos((laudo.cargos || []).filter((c) => c && (temTexto(c.nome) || c.condicoes)));
+  // Cargo sem nada preenchido (só o nome) fica de fora do PDF; continua guardado no projeto
+  const cargos = ordenarCargos((laudo.cargos || []).filter((c) => c && cargoTemDados(c)));
   const dataEmissao = opcoes.dataEmissao || hojeBr();
   const ano = dataEmissao.slice(-4);
   const localServicos = txt(emp.enderecoLocal); // "Local dos serviços" (sem trocar pelo endereço da empresa)
@@ -7979,8 +8065,11 @@ function montarDocumentoPdf(laudoBruto, opcoes = {}) {
   content.push(...montarTabelasRulaPdf());
 
   tituloSemNumero("Anexo 4 – Certificado de capacitação");
-  if (imagemValida(laudo.anexos?.certificado)) {
-    content.push({ image: laudo.anexos.certificado, fit: [475, 640], alignment: "center" });
+  const paginasCert = paginasCertificado(laudo.anexos).filter(imagemValida);
+  if (paginasCert.length) {
+    paginasCert.forEach((src, i) => {
+      content.push({ image: src, fit: [475, 640], alignment: "center", ...(i > 0 ? { pageBreak: "before" } : {}) });
+    });
   } else {
     content.push({ text: "Certificado não anexado.", style: "paragrafo", color: PDF_CINZA });
   }
@@ -8337,7 +8426,7 @@ const emptyLaudo = () => ({
   },
   cargos: [],
   planoAcao: { acoes: [], consideracoes: TEXTO_CONSIDERACOES },
-  anexos: { certificado: null },
+  anexos: { certificado: null, certificadoExtras: [] },
 });
 
 // Completa um laudo salvo (ou reaberto do histórico) com os campos que faltarem,
@@ -8749,7 +8838,7 @@ const TEXTO_MANUAL = `Guia rápido para elaborar a Análise Ergonômica do Traba
 • Complete o quê, por quê, quem, como, onde e quando.
 • Revise as Considerações Finais, que também podem ser editadas.
 ## 7. Anexos
-• Envie a imagem do seu certificado de capacitação. Se ele estiver em PDF, tire um print da página.
+• Envie o seu certificado de capacitação em PDF ou em imagem. Se o PDF tiver várias páginas, todas entram no laudo.
 ## 8. Gerar o PDF
 • No menu do projeto, toque em "Gerar PDF".
 • Informe o valor cobrado (opcional, só para o seu controle) e responda se quer manter as informações salvas: "Sim" mantém o projeto para correções; "Não" tira o projeto da lista.
